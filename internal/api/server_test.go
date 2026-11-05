@@ -440,6 +440,10 @@ func TestIntegration(t *testing.T) {
 			t.Fatal(out)
 		}
 		f.expect(8, "POST", "/v1/posts", DataMap{"body": "No", "audience": "PUBLIC", "township": "kamayut"}, 403)
+		// The report hides the pair and HIGH restricts the target; later subtests
+		// reuse these users, so restore both here.
+		f.exec("DELETE FROM safety.blocks")
+		f.exec("UPDATE identity.accounts SET restricted=false WHERE id=$1", f.users[8])
 	})
 	run("ghost_hides_and_locks", func(t *testing.T) {
 		f.expect(6, "POST", "/v1/safety/ghost", DataMap{"enabled": true}, 200)

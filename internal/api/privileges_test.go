@@ -94,6 +94,7 @@ func TestPrivilegeBoundaries(t *testing.T) {
 		denied(t, execErr(c, ctx, "SELECT body FROM chat.messages LIMIT 1"), "janitor message read")
 		denied(t, execErr(c, ctx, "SELECT fix_cipher FROM private.user_locations LIMIT 1"), "janitor exact-fix read")
 		denied(t, execErr(c, ctx, "SELECT id FROM identity.accounts LIMIT 1"), "janitor identity read")
+		denied(t, execErr(c, ctx, "SELECT phone_cipher FROM identity.otp LIMIT 1"), "janitor otp cipher read")
 		denied(t, execErr(c, ctx, "INSERT INTO identity.otp(phone_hash,phone_cipher,code_hash,expires_at) VALUES('x','x','x',now())"), "janitor otp write")
 	})
 }
