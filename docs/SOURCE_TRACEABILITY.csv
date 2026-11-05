@@ -1,0 +1,31 @@
+reference_screen,screen,module,implementation_filenames,status,verified_scope_or_gap
+1,Splash,A,main.dart,PARTIAL,Nexus initial app/onboarding; no dedicated launch-logo parity
+2-4,Onboarding,A,main.dart,IMPLEMENTED_BASELINE,Three localized slides; no original photos/illustrations reused
+5,Sign in,A,main.dart;auth.go,ADAPTED,Phone OTP primary; no email recovery yet
+6,Sign up,A,profile.dart;auth.go,PARTIAL,Adult DOB/social basics; no full permission sequence
+7,Phone entry,A,main.dart;auth.go,IMPLEMENTED_BASELINE,E.164 phone + OTP request
+8,OTP,A,main.dart;auth.go,ADAPTED,Six-digit security rather than reference four digits; provider not connected
+9-10,Recovery/password,A,,NOT_IMPLEMENTED,No misleading password screens for phone-only baseline
+11,Feed,B,community.dart;social.go,PARTIAL,Text feed/review/audience/cursor; highlights header only
+12,Create post,B,community.dart;social.go,PARTIAL,Text and audience only; no uploaded media
+13,Comments,B,community.dart;social.go,PARTIAL,Two-level moderated text; no likes/stickers/media
+14,Follow requests,G,,NOT_IMPLEMENTED,No complete follow lifecycle
+15,Notifications,G,profile.dart;safety.go,PARTIAL,Safety inbox; no pushes or full social activity fanout
+16,Chat list,F,chat.dart;chat.go,PARTIAL,Rooms list; no avatars/presence row
+17,Calls list,F,,NOT_IMPLEMENTED,Honest unavailable notice
+18,Chat thread,F,chat.dart;chat.go,PARTIAL,Normal/Whisper text; no voice/media/typing
+19,Search conversation,C/F,,NOT_IMPLEMENTED,No room history search endpoint
+20-24,Global search,C,community.dart;social.go,PARTIAL,People/posts/events only; no All/photos/recents
+25-26,Events feed/detail,D,community.dart;social.go,PARTIAL,Area text/RSVP/Tier3 API; no detail-map/Meet Safe
+27,Nearby map,E,discover.dart;geo.go,ADAPTED,"Synthetic privacy rings and anonymous blips, no real coordinate map"
+28,Nearby list,E,discover.dart;geo.go,IMPLEMENTED_BASELINE,k-gated nickname cards and approximate buckets
+29,Nearby filter,E,profile.dart;geo.go,PARTIAL,Radius/privacy editor; no last-active sort UX
+30,Create chat,F,chat.go,PARTIAL,Friend-only group API; no multi-select composer UI
+31,Video call,F,,NOT_IMPLEMENTED,503 integration-not-configured; no pretend WebRTC
+32,Dual profile,H,profile.dart;auth.go,PARTIAL,Separate editors/schemas; no cover/media grids
+N1,Swipe stack,I,discover.dart;geo.go,PARTIAL,Buttons and reciprocal match; no gesture stack
+N2,Verification,I,,NOT_IMPLEMENTED,No self-granted liveness or ID tier
+N3,Safety Center,I,profile.dart;safety.go,PARTIAL,Block/report/ghost; no trusted contacts/evidence media
+N4,Nexus+,I,,NOT_IMPLEMENTED,"Allowed future subscription, disabled now"
+N5,City board/groups,I,social.go;community.dart,PARTIAL,Group list/create/join API; no full group feed
+N6,Whisper settings,F,chat.dart;chat.go,PARTIAL,Text toggle/disclosure/live-row deletion only

@@ -1,0 +1,9 @@
+.env
+.dart_tool/
+.flutter-plugins-dependencies
+build/
+node_modules/
+coverage/
+*.log
+*.local
+.DS_Store

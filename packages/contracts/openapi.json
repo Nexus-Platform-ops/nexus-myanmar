@@ -1,0 +1,3082 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Nexus baseline API",
+    "version": "0.1.0",
+    "description": "Implemented development baseline only. Not production certified. Exact GPS appears ONLY on authenticated location ingress. Public projection never returns coordinates. See docs/READINESS.md for incomplete modules. Response DTO schemas below describe critical privacy boundaries; not every operation is fully typed yet."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development only"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "DatingCard": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "age": {
+            "type": "integer",
+            "minimum": 18
+          },
+          "bio": {
+            "type": "string"
+          },
+          "prompts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "interests": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tier": {
+            "type": "integer"
+          },
+          "township": {
+            "type": "string"
+          },
+          "distance_bucket": {
+            "type": "string",
+            "enum": [
+              "<500m",
+              "1km",
+              "3km",
+              "5km",
+              "10km+"
+            ]
+          }
+        },
+        "required": [
+          "profile_id",
+          "nickname",
+          "age",
+          "distance_bucket"
+        ]
+      },
+      "RadarBlip": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "blip_id": {
+            "type": "string"
+          },
+          "distance_bucket": {
+            "type": "string"
+          },
+          "display_angle": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 359,
+            "description": "Synthetic, not actual compass bearing"
+          },
+          "display_ring": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/health/live": {
+      "get": {
+        "operationId": "GET__health_live",
+        "summary": "GET /health/live",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "GET__health_ready",
+        "summary": "GET /health/ready",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/auth/otp/request": {
+      "post": {
+        "operationId": "POST__v1_auth_otp_request",
+        "summary": "POST /v1/auth/otp/request",
+        "security": [],
+        "responses": {
+          "202": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "phone": {
+                    "type": "string",
+                    "pattern": "^\\+[1-9][0-9]{7,14}$"
+                  }
+                },
+                "required": [
+                  "phone"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/otp/verify": {
+      "post": {
+        "operationId": "POST__v1_auth_otp_verify",
+        "summary": "POST /v1/auth/otp/verify",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "challenge_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "code": {
+                    "type": "string",
+                    "minLength": 6,
+                    "maxLength": 6
+                  },
+                  "dob": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "device": {
+                    "type": "string",
+                    "maxLength": 80
+                  }
+                },
+                "required": [
+                  "challenge_id",
+                  "code",
+                  "dob",
+                  "device"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/refresh": {
+      "post": {
+        "operationId": "POST__v1_auth_refresh",
+        "summary": "POST /v1/auth/refresh",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "refresh_token": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "refresh_token"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/sessions": {
+      "get": {
+        "operationId": "GET__v1_auth_sessions",
+        "summary": "GET /v1/auth/sessions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/auth/sessions/{id}": {
+      "delete": {
+        "operationId": "DELETE__v1_auth_sessions__id_",
+        "summary": "DELETE /v1/auth/sessions/{id}",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/profile": {
+      "get": {
+        "operationId": "GET__v1_profile",
+        "summary": "GET /v1/profile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      },
+      "put": {
+        "operationId": "PUT__v1_profile",
+        "summary": "PUT /v1/profile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "real_name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "township": {
+                    "type": "string",
+                    "enum": [
+                      "kamayut",
+                      "bahan",
+                      "chanayethazan",
+                      "bangkok",
+                      "chiang-mai"
+                    ]
+                  },
+                  "bio": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "real_name",
+                  "township"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/dating-profile/preview": {
+      "get": {
+        "operationId": "GET__v1_dating_profile_preview",
+        "summary": "GET /v1/dating-profile/preview",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/dating-profile": {
+      "put": {
+        "operationId": "PUT__v1_dating_profile",
+        "summary": "PUT /v1/dating-profile",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "nickname": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40
+                  },
+                  "bio": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "photos": {
+                    "type": "array",
+                    "maxItems": 0,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Media provider unconfigured; nonempty arrays rejected."
+                  },
+                  "prompts": {
+                    "type": "array",
+                    "maxItems": 3,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 200
+                    }
+                  },
+                  "interests": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 200
+                    }
+                  },
+                  "gender": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "preferences": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 200
+                    }
+                  },
+                  "age_min": {
+                    "type": "integer",
+                    "minimum": 18
+                  },
+                  "age_max": {
+                    "type": "integer",
+                    "maximum": 120
+                  },
+                  "hide_from_social_friends": {
+                    "type": "boolean"
+                  },
+                  "radar_opt_in": {
+                    "type": "boolean"
+                  },
+                  "radius_km": {
+                    "type": "integer",
+                    "enum": [
+                      1,
+                      3,
+                      5,
+                      10
+                    ]
+                  }
+                },
+                "required": [
+                  "nickname",
+                  "gender",
+                  "age_min",
+                  "age_max",
+                  "radius_km"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/location": {
+      "post": {
+        "operationId": "POST__v1_location",
+        "summary": "POST /v1/location",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "lat": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90
+                  },
+                  "lng": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180
+                  },
+                  "accuracy": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "township": {
+                    "type": "string"
+                  },
+                  "nonce": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "lat",
+                  "lng",
+                  "accuracy",
+                  "township",
+                  "nonce"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/location:patch": {
+      "post": {
+        "operationId": "POST__v1_location_patch",
+        "summary": "POST /v1/location:patch",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "lat": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90
+                  },
+                  "lng": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180
+                  },
+                  "accuracy": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "township": {
+                    "type": "string"
+                  },
+                  "nonce": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "lat",
+                  "lng",
+                  "accuracy",
+                  "township",
+                  "nonce"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/discover": {
+      "get": {
+        "operationId": "GET__v1_discover",
+        "summary": "GET /v1/discover",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/lookaround": {
+      "get": {
+        "operationId": "GET__v1_lookaround",
+        "summary": "GET /v1/lookaround",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "band",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "500m",
+                "1km",
+                "3km",
+                "5km",
+                "10km"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "township",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/radar": {
+      "get": {
+        "operationId": "GET__v1_radar",
+        "summary": "GET /v1/radar",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/radar/blips/{id}": {
+      "get": {
+        "operationId": "GET__v1_radar_blips__id_",
+        "summary": "GET /v1/radar/blips/{id}",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/actions/swipe": {
+      "post": {
+        "operationId": "POST__v1_actions_swipe",
+        "summary": "POST /v1/actions/swipe",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "profile_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "enum": [
+                      "LIKE",
+                      "PASS"
+                    ]
+                  }
+                },
+                "required": [
+                  "profile_id",
+                  "intent"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/feed": {
+      "get": {
+        "operationId": "GET__v1_feed",
+        "summary": "GET /v1/feed",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "township",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/posts": {
+      "post": {
+        "operationId": "POST__v1_posts",
+        "summary": "POST /v1/posts",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 5000
+                  },
+                  "audience": {
+                    "type": "string",
+                    "enum": [
+                      "PUBLIC",
+                      "COMMUNITY",
+                      "FRIENDS"
+                    ]
+                  },
+                  "township": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "body",
+                  "audience",
+                  "township"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/posts/{id}/reactions": {
+      "post": {
+        "operationId": "POST__v1_posts__id__reactions",
+        "summary": "POST /v1/posts/{id}/reactions",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "LIKE",
+                      "LOVE",
+                      "HAHA",
+                      "WOW",
+                      "SAD",
+                      "ANGRY",
+                      "NONE"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/posts/{id}/bookmark": {
+      "post": {
+        "operationId": "POST__v1_posts__id__bookmark",
+        "summary": "POST /v1/posts/{id}/bookmark",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "saved": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "saved"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/posts/{id}/comments": {
+      "get": {
+        "operationId": "GET__v1_posts__id__comments",
+        "summary": "GET /v1/posts/{id}/comments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "POST__v1_posts__id__comments",
+        "summary": "POST /v1/posts/{id}/comments",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "parent_comment_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "body"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/posts/{id}/shares": {
+      "post": {
+        "operationId": "POST__v1_posts__id__shares",
+        "summary": "POST /v1/posts/{id}/shares",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "RESHARE",
+                      "SEND_DM",
+                      "COPY_LINK"
+                    ]
+                  },
+                  "room_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "operationId": "GET__v1_search",
+        "summary": "GET /v1/search",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 100
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "people",
+                "posts",
+                "events"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "GET__v1_events",
+        "summary": "GET /v1/events",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "township",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "POST__v1_events",
+        "summary": "POST /v1/events",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 150
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 3000
+                  },
+                  "township": {
+                    "type": "string"
+                  },
+                  "venue_area": {
+                    "type": "string",
+                    "maxLength": 150
+                  },
+                  "starts_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "ends_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "title",
+                  "description",
+                  "township",
+                  "venue_area",
+                  "starts_at",
+                  "ends_at"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events/{id}/rsvp": {
+      "post": {
+        "operationId": "POST__v1_events__id__rsvp",
+        "summary": "POST /v1/events/{id}/rsvp",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ATTEND",
+                      "NOT_GOING"
+                    ]
+                  }
+                },
+                "required": [
+                  "status"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups": {
+      "get": {
+        "operationId": "GET__v1_groups",
+        "summary": "GET /v1/groups",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "POST__v1_groups",
+        "summary": "POST /v1/groups",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "township": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "name",
+                  "township",
+                  "description"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/{id}/join": {
+      "post": {
+        "operationId": "POST__v1_groups__id__join",
+        "summary": "POST /v1/groups/{id}/join",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/chats": {
+      "get": {
+        "operationId": "GET__v1_chats",
+        "summary": "GET /v1/chats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "POST__v1_chats",
+        "summary": "POST /v1/chats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "members": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 9,
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "required": [
+                  "members"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chats/{id}/messages": {
+      "get": {
+        "operationId": "GET__v1_chats__id__messages",
+        "summary": "GET /v1/chats/{id}/messages",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_seq",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "POST__v1_chats__id__messages",
+        "summary": "POST /v1/chats/{id}/messages",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 4000
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "NORMAL",
+                      "WHISPER"
+                    ]
+                  },
+                  "client_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "text",
+                  "mode",
+                  "client_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chats/{id}/read": {
+      "post": {
+        "operationId": "POST__v1_chats__id__read",
+        "summary": "POST /v1/chats/{id}/read",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "through_seq": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "through_seq"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/notifications": {
+      "get": {
+        "operationId": "GET__v1_notifications",
+        "summary": "GET /v1/notifications",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVITY",
+                "SAFETY",
+                "FOLLOW"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "/v1/notifications/{id}/read": {
+      "post": {
+        "operationId": "POST__v1_notifications__id__read",
+        "summary": "POST /v1/notifications/{id}/read",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/safety/report": {
+      "post": {
+        "operationId": "POST__v1_safety_report",
+        "summary": "POST /v1/safety/report",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "target_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "profile_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "SCAM",
+                      "HARASSMENT",
+                      "UNDERAGE",
+                      "VIOLENCE",
+                      "OTHER"
+                    ]
+                  },
+                  "details": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "category",
+                  "details"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/safety/reports": {
+      "get": {
+        "operationId": "GET__v1_safety_reports",
+        "summary": "GET /v1/safety/reports",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/safety/block": {
+      "post": {
+        "operationId": "POST__v1_safety_block",
+        "summary": "POST /v1/safety/block",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "target_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "profile_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/safety/blocks": {
+      "get": {
+        "operationId": "GET__v1_safety_blocks",
+        "summary": "GET /v1/safety/blocks",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/safety/blocks/{id}": {
+      "delete": {
+        "operationId": "DELETE__v1_safety_blocks__id_",
+        "summary": "DELETE /v1/safety/blocks/{id}",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/safety/ghost": {
+      "post": {
+        "operationId": "POST__v1_safety_ghost",
+        "summary": "POST /v1/safety/ghost",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/safety/capture-alert": {
+      "post": {
+        "operationId": "POST__v1_safety_capture_alert",
+        "summary": "POST /v1/safety/capture-alert",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "room_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "SCREENSHOT",
+                      "RECORDING"
+                    ]
+                  }
+                },
+                "required": [
+                  "room_id",
+                  "kind"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/account/export": {
+      "get": {
+        "operationId": "GET__v1_account_export",
+        "summary": "GET /v1/account/export",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/account": {
+      "delete": {
+        "operationId": "DELETE__v1_account",
+        "summary": "DELETE /v1/account",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "confirm": {
+                    "type": "string",
+                    "enum": [
+                      "DELETE MY ACCOUNT"
+                    ]
+                  }
+                },
+                "required": [
+                  "confirm"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/realtime/ticket": {
+      "post": {
+        "operationId": "POST__v1_realtime_ticket",
+        "summary": "POST /v1/realtime/ticket",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        }
+      }
+    },
+    "/v1/ws": {
+      "get": {
+        "operationId": "GET__v1_ws",
+        "summary": "GET /v1/ws",
+        "security": [],
+        "responses": {
+          "101": {
+            "description": "Baseline operation result; see response examples and source mapping"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          },
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "in": "query",
+            "name": "ticket",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          }
+        ]
+      }
+    },
+    "/v1/calls": {
+      "post": {
+        "operationId": "POST__v1_calls",
+        "summary": "DISABLED: provider integration not configured",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          }
+        }
+      }
+    },
+    "/v1/media/upload": {
+      "post": {
+        "operationId": "POST__v1_media_upload",
+        "summary": "DISABLED: provider integration not configured",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          }
+        }
+      }
+    },
+    "/v1/verification": {
+      "post": {
+        "operationId": "POST__v1_verification",
+        "summary": "DISABLED: provider integration not configured",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          }
+        }
+      }
+    },
+    "/v1/nexus-plus": {
+      "post": {
+        "operationId": "POST__v1_nexus_plus",
+        "summary": "DISABLED: provider integration not configured",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "503": {
+            "description": "Dependency or provider integration unavailable"
+          },
+          "400": {
+            "description": "Strict validation failed"
+          },
+          "401": {
+            "description": "Missing, expired or revoked authentication"
+          },
+          "403": {
+            "description": "Safety, tier or audience restriction"
+          },
+          "404": {
+            "description": "Resource unavailable or not visible"
+          },
+          "429": {
+            "description": "Rate limit / probe budget exhausted"
+          },
+          "500": {
+            "description": "Internal dependency error; no sensitive detail returned"
+          }
+        }
+      }
+    }
+  }
+}

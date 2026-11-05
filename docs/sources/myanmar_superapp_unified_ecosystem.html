@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Myanmar Unified Ecosystem SuperApp</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#fffbe6',
+                            100: '#fff3b3',
+                            500: '#f59e0b',
+                            600: '#d97706',
+                            700: '#b45309',
+                        },
+                        beetalk: '#ffcc00',
+                        fbBlue: '#1877f2'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom Styles & Mobile Frame Styling */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+        }
+        .dark .glass-panel {
+            background: rgba(30, 41, 59, 0.88);
+        }
+        .radar-sweep {
+            animation: radarSweep 3s linear infinite;
+        }
+        @keyframes radarSweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .pulse-glow {
+            animation: pulseGlow 2s ease-in-out infinite alternate;
+        }
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 5px rgba(245, 158, 11, 0.4); }
+            100% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.9); }
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.03);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(156, 163, 175, 0.4);
+            border-radius: 4px;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+
+    <!-- GLOBAL JAVASCRIPT ENGINE & EVENT HANDLERS -->
+    <script>
+        // Database Isolation Engine
+        let userProfileDB = {
+            id: "usr_99182",
+            real_name: "Thandar Myint",
+            avatar_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80",
+            township: "Kamayut, Yangon"
+        };
+
+        let datingProfileDB = {
+            id: "date_00412",
+            user_id: "usr_99182",
+            nickname: "Cherry (BeeTalk)",
+            avatar_url: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=120&q=80",
+            bio: "Coffee lover & Traveler ☕✨",
+            is_hidden_from_friends: true
+        };
+
+        let coinBalance = 2450;
+
+        function switchMainTab(tabId) {
+            document.querySelectorAll('.view-panel').forEach(panel => panel.classList.add('hidden'));
+            const targetView = document.getElementById(`view-${tabId}`);
+            if (targetView) {
+                targetView.classList.remove('hidden');
+            }
+
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active', 'text-amber-600', 'dark:text-amber-400');
+                btn.classList.add('text-slate-400');
+            });
+            const activeNav = document.getElementById(`nav-${tabId}`);
+            if (activeNav) {
+                activeNav.classList.add('active', 'text-amber-600', 'dark:text-amber-400');
+            }
+        }
+
+        function switchProfileTab(type) {
+            if (type === 'user') {
+                document.getElementById('profileContainer-user').classList.remove('hidden');
+                document.getElementById('profileContainer-dating').classList.add('hidden');
+                document.getElementById('profileTab-user').className = "flex-1 py-1.5 text-xs font-bold rounded-xl bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm transition";
+                document.getElementById('profileTab-dating').className = "flex-1 py-1.5 text-xs font-bold rounded-xl text-slate-500 dark:text-slate-400 transition";
+            } else {
+                document.getElementById('profileContainer-user').classList.add('hidden');
+                document.getElementById('profileContainer-dating').classList.remove('hidden');
+                document.getElementById('profileTab-dating').className = "flex-1 py-1.5 text-xs font-bold rounded-xl bg-white dark:bg-slate-700 text-rose-500 shadow-sm transition";
+                document.getElementById('profileTab-user').className = "flex-1 py-1.5 text-xs font-bold rounded-xl text-slate-500 dark:text-slate-400 transition";
+            }
+        }
+
+        function saveUserProfile() {
+            const inputName = document.getElementById('inputRealName').value;
+            if (inputName) {
+                userProfileDB.real_name = inputName;
+                document.getElementById('displayUserName').innerText = userProfileDB.real_name;
+            }
+        }
+
+        function saveDatingProfile() {
+            const inputNick = document.getElementById('inputDatingNickname').value;
+            const inputBio = document.getElementById('inputDatingBio').value;
+            if (inputNick) datingProfileDB.nickname = inputNick;
+            if (inputBio) datingProfileDB.bio = inputBio;
+            document.getElementById('displayDatingNickname').innerText = datingProfileDB.nickname;
+        }
+
+        function switchDatingSubTab(subTabId) {
+            ['radar', 'swipe', 'whisper'].forEach(id => {
+                const subView = document.getElementById(`datingSubView-${id}`);
+                const subTab = document.getElementById(`datingTab-${id}`);
+                if (subView) subView.classList.add('hidden');
+                if (subTab) subTab.className = "py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition";
+            });
+            const activeView = document.getElementById(`datingSubView-${subTabId}`);
+            const activeTab = document.getElementById(`datingTab-${subTabId}`);
+            if (activeView) activeView.classList.remove('hidden');
+            if (activeTab) activeTab.className = "py-1.5 rounded-xl text-xs font-bold bg-rose-500 text-white shadow-sm transition";
+        }
+
+        function toggleTownshipDropdown() {
+            const dropdown = document.getElementById('townshipDropdown');
+            if (dropdown) dropdown.classList.toggle('hidden');
+        }
+
+        function setTownship(name) {
+            const textElem = document.getElementById('selectedTownshipText');
+            if (textElem) textElem.innerText = name.split(',')[0];
+            const dropdown = document.getElementById('townshipDropdown');
+            if (dropdown) dropdown.classList.add('hidden');
+        }
+
+        function openTopUpModal() {
+            const modal = document.getElementById('topUpModal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeTopUpModal() {
+            const modal = document.getElementById('topUpModal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function addCoins(amount) {
+            coinBalance += amount;
+            const balanceElem = document.getElementById('userCoinBalance');
+            if (balanceElem) balanceElem.innerText = coinBalance.toLocaleString();
+            closeTopUpModal();
+        }
+
+        function handleSwipe(action) {
+            const nameElem = document.getElementById('swipeCardName');
+            if (nameElem) {
+                nameElem.innerText = action === 'like' ? "Matched! Su Htet, 22" : "Khine Wint, 24";
+            }
+        }
+
+        function sendWhisperMessage() {
+            const input = document.getElementById('whisperInput');
+            if (!input || !input.value.trim()) return;
+            const box = document.getElementById('whisperMessagesBox');
+            if (!box) return;
+            const msgEl = document.createElement('div');
+            msgEl.className = "bg-purple-600 text-white p-2 rounded-2xl max-w-[80%] ml-auto text-xs shadow-sm";
+            msgEl.innerHTML = `<span>${input.value}</span> <span class="text-[8px] block text-purple-200 italic">Self-destructs in 5s...</span>`;
+            box.appendChild(msgEl);
+            input.value = '';
+            setTimeout(() => msgEl.remove(), 5000);
+        }
+
+        function switchChatMode(mode) {
+            const personalBtn = document.getElementById('chatModeBtn-personal');
+            const businessBtn = document.getElementById('chatModeBtn-business');
+            const chatBox = document.getElementById('activeChatMessages');
+
+            if (!personalBtn || !businessBtn || !chatBox) return;
+
+            if (mode === 'personal') {
+                personalBtn.className = "py-1 text-xs font-bold rounded-lg bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 shadow-sm transition";
+                businessBtn.className = "py-1 text-xs font-bold text-slate-500 rounded-lg transition";
+                chatBox.innerHTML = `
+                    <div class="bg-slate-100 dark:bg-slate-700 p-2.5 rounded-2xl max-w-[80%]">မင်္ဂလာပါ။ ဘာကူညီပေးရမလဲခင်ဗျာ?</div>
+                `;
+            } else {
+                businessBtn.className = "py-1 text-xs font-bold rounded-lg bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400 shadow-sm transition";
+                personalBtn.className = "py-1 text-xs font-bold text-slate-500 rounded-lg transition";
+                chatBox.innerHTML = `
+                    <div class="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[11px] font-semibold">
+                        <i class="fa-solid fa-briefcase mr-1"></i> Market Business Chat Thread Activated
+                    </div>
+                    <div class="bg-slate-100 dark:bg-slate-700 p-2.5 rounded-2xl max-w-[80%]">ပစ္စည်းဝယ်ယူရန် မေးမြန်းနိုင်ပါသည်ခင်ဗျာ။ Nexus Coins ဖြင့်လည်း ချက်ချင်းပေးချေနိုင်ပါသည်။</div>
+                `;
+            }
+        }
+
+        function triggerBusinessChat(productTitle, price) {
+            switchMainTab('chat');
+            switchChatMode('business');
+            const chatBox = document.getElementById('activeChatMessages');
+            if (!chatBox) return;
+            const itemNotice = document.createElement('div');
+            itemNotice.className = "bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 p-2 rounded-xl text-[11px] font-bold text-center";
+            itemNotice.innerText = `Inquiry for: ${productTitle} (${price})`;
+            chatBox.appendChild(itemNotice);
+        }
+
+        function sendActiveChatMessage() {
+            const input = document.getElementById('activeChatInput');
+            if (!input || !input.value.trim()) return;
+            const chatBox = document.getElementById('activeChatMessages');
+            if (!chatBox) return;
+            const msg = document.createElement('div');
+            msg.className = "bg-amber-500 text-white p-2.5 rounded-2xl max-w-[80%] ml-auto shadow-sm";
+            msg.innerText = input.value;
+            chatBox.appendChild(msg);
+            input.value = '';
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function createNewPost() {
+            const input = document.getElementById('newPostInput');
+            if (!input || !input.value.trim()) return;
+            const container = document.getElementById('socialFeedContainer');
+            if (!container) return;
+            const postCard = document.createElement('div');
+            postCard.className = "bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-2.5";
+            postCard.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                        <img src="${userProfileDB.avatar_url}" class="w-8 h-8 rounded-full object-cover">
+                        <div>
+                            <h5 class="font-bold text-xs">${userProfileDB.real_name}</h5>
+                            <span class="text-[10px] text-slate-400">Just now</span>
+                        </div>
+                    </div>
+                    <i class="fa-solid fa-ellipsis text-slate-400 text-xs"></i>
+                </div>
+                <p class="text-xs text-slate-700 dark:text-slate-200">${input.value}</p>
+                <div class="flex items-center justify-around pt-2 border-t border-slate-100 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    <button onclick="toggleLike(this)" class="flex items-center gap-1"><i class="fa-regular fa-thumbs-up"></i> Like</button>
+                    <button class="flex items-center gap-1"><i class="fa-regular fa-comment"></i> Comment</button>
+                    <button class="flex items-center gap-1"><i class="fa-solid fa-share"></i> Share</button>
+                </div>
+            `;
+            container.prepend(postCard);
+            input.value = '';
+        }
+
+        function toggleLike(btn) {
+            btn.classList.toggle('text-amber-500');
+        }
+    </script>
+</head>
+<body class="bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen font-sans flex items-center justify-center p-0 sm:p-4">
+
+    <!-- MOBILE APPLICATION CONTAINER WRAPPER -->
+    <div class="w-full max-w-md bg-slate-100 dark:bg-slate-900 min-h-screen sm:min-h-[844px] sm:max-h-[850px] sm:rounded-[40px] shadow-2xl border-0 sm:border-8 sm:border-slate-800 flex flex-col relative overflow-hidden">
+        
+        <!-- TOP MOBILE STATUS & GLOBAL HEADER -->
+        <header class="sticky top-0 z-40 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 px-4 py-3">
+            <div class="flex items-center justify-between">
+                <!-- Brand Logo & App Mode -->
+                <div class="flex items-center gap-2">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-400 flex items-center justify-center text-white font-bold text-lg shadow-md">
+                        <i class="fa-solid fa-hive"></i>
+                    </div>
+                    <div>
+                        <span class="font-extrabold text-base tracking-tight bg-gradient-to-r from-amber-600 to-yellow-500 bg-clip-text text-transparent">
+                            NexusHub
+                        </span>
+                        <span class="block text-[9px] font-semibold text-slate-400 uppercase tracking-widest leading-none">Mobile App</span>
+                    </div>
+                </div>
+
+                <!-- Township Selector (Hyper-Local Filter) -->
+                <div class="relative">
+                    <button onclick="toggleTownshipDropdown()" class="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 px-2.5 py-1 rounded-full text-xs font-semibold text-slate-700 dark:text-slate-200 transition">
+                        <i class="fa-solid fa-location-dot text-amber-500"></i>
+                        <span id="selectedTownshipText">Kamayut</span>
+                        <i class="fa-solid fa-chevron-down text-[10px] text-slate-400"></i>
+                    </button>
+                    <!-- Township Dropdown Menu -->
+                    <div id="townshipDropdown" class="hidden absolute top-full right-0 mt-2 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 p-2">
+                        <div class="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase">Township Filter</div>
+                        <div class="space-y-1">
+                            <button onclick="setTownship('Kamayut, Yangon')" class="w-full text-left px-3 py-1.5 text-xs rounded-xl hover:bg-amber-50 dark:hover:bg-slate-700 font-medium transition flex items-center justify-between">
+                                Kamayut <span class="text-[10px] text-slate-400">Yangon</span>
+                            </button>
+                            <button onclick="setTownship('Bahan, Yangon')" class="w-full text-left px-3 py-1.5 text-xs rounded-xl hover:bg-amber-50 dark:hover:bg-slate-700 font-medium transition flex items-center justify-between">
+                                Bahan <span class="text-[10px] text-slate-400">Yangon</span>
+                            </button>
+                            <button onclick="setTownship('Chanayethazan, Mandalay')" class="w-full text-left px-3 py-1.5 text-xs rounded-xl hover:bg-amber-50 dark:hover:bg-slate-700 font-medium transition flex items-center justify-between">
+                                Chanayethazan <span class="text-[10px] text-slate-400">MDY</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Nexus Coins Badge -->
+                <div onclick="openTopUpModal()" class="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-full cursor-pointer hover:bg-amber-500/20 transition">
+                    <i class="fa-solid fa-coins text-amber-500 text-xs"></i>
+                    <span id="userCoinBalance" class="text-xs font-bold text-amber-600 dark:text-amber-400">2,450</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN SCROLLABLE VIEW CONTAINER -->
+        <div class="flex-1 overflow-y-auto p-3 space-y-4 hide-scrollbar">
+
+            <!-- VIEW 1: SOCIAL FEED (FACEBOOK STYLE) -->
+            <main id="view-home" class="view-panel space-y-3">
+                <!-- Create Post Input Bar -->
+                <div class="bg-white dark:bg-slate-800 rounded-2xl p-3 border border-slate-200 dark:border-slate-700 shadow-sm space-y-2">
+                    <div class="flex items-center gap-2">
+                        <img id="mainProfileAvatarHeader" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80" class="w-9 h-9 rounded-full object-cover border border-amber-500">
+                        <input type="text" id="newPostInput" placeholder="What's on your mind?" class="flex-1 bg-slate-100 dark:bg-slate-700 text-xs px-3.5 py-2 rounded-full border-0 focus:ring-2 focus:ring-amber-500 outline-none">
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] font-medium pt-1 border-t border-slate-100 dark:border-slate-700 px-1">
+                        <button class="flex items-center gap-1.5 text-rose-500"><i class="fa-solid fa-images"></i> Photo</button>
+                        <button class="flex items-center gap-1.5 text-amber-500"><i class="fa-solid fa-tag"></i> Tag</button>
+                        <button onclick="createNewPost()" class="bg-amber-500 text-white font-bold px-3 py-1 rounded-full text-xs shadow">Post</button>
+                    </div>
+                </div>
+
+                <!-- Feed Stream Container -->
+                <div id="socialFeedContainer" class="space-y-3">
+                    <div class="bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-2.5">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2.5">
+                                <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80" class="w-8 h-8 rounded-full object-cover">
+                                <div>
+                                    <h5 class="font-bold text-xs">Kyaw Zin Aung</h5>
+                                    <span class="text-[10px] text-slate-400">Kamayut · 2h ago</span>
+                                </div>
+                            </div>
+                            <i class="fa-solid fa-ellipsis text-slate-400 text-xs"></i>
+                        </div>
+                        <p class="text-xs text-slate-700 dark:text-slate-200">ကမာရွတ်မြို့နယ်ထဲမှာ လူကြိုက်များတဲ့ Coffee shop လေးတစ်ခု ရောက်ခဲ့ပါတယ်။ Nexus Coins နဲ့လည်း တိုက်ရိုက် ငွေရှင်းလို့ရတယ်နော်! ☕✨</p>
+                        <img src="https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=800&q=80" class="rounded-xl w-full h-48 object-cover">
+                        <div class="flex items-center justify-between text-[10px] text-slate-400 pt-1">
+                            <span>❤️ 👍 142 Reactions</span>
+                            <span>28 Comments</span>
+                        </div>
+                        <div class="flex items-center justify-around pt-2 border-t border-slate-100 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                            <button onclick="toggleLike(this)" class="flex items-center gap-1"><i class="fa-regular fa-thumbs-up"></i> Like</button>
+                            <button class="flex items-center gap-1"><i class="fa-regular fa-comment"></i> Comment</button>
+                            <button class="flex items-center gap-1"><i class="fa-solid fa-share"></i> Share</button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- VIEW 2: DATING & BEETALK RADAR MODE -->
+            <main id="view-dating" class="view-panel hidden space-y-3">
+                <!-- Sub Tab Navigation -->
+                <div class="grid grid-cols-3 gap-1 bg-white dark:bg-slate-800 p-1 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
+                    <button id="datingTab-radar" onclick="switchDatingSubTab('radar')" class="py-1.5 rounded-xl text-xs font-bold bg-rose-500 text-white shadow-sm transition">
+                        Radar
+                    </button>
+                    <button id="datingTab-swipe" onclick="switchDatingSubTab('swipe')" class="py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+                        Cards
+                    </button>
+                    <button id="datingTab-whisper" onclick="switchDatingSubTab('whisper')" class="py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+                        Whisper
+                    </button>
+                </div>
+
+                <!-- Sub-View A: BeeTalk Radar View -->
+                <div id="datingSubView-radar" class="bg-white dark:bg-slate-800 rounded-3xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center justify-center min-h-[360px] relative overflow-hidden">
+                    <div class="relative w-56 h-56 rounded-full border border-rose-500/30 flex items-center justify-center">
+                        <div class="absolute inset-0 rounded-full border border-rose-500/20 animate-ping"></div>
+                        <div class="w-36 h-36 rounded-full border border-rose-500/40 flex items-center justify-center">
+                            <div class="w-20 h-20 rounded-full border border-rose-500/60 flex items-center justify-center bg-rose-500/10">
+                                <img id="datingRadarAvatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80" class="w-14 h-14 rounded-full object-cover border-2 border-rose-500 shadow-md">
+                            </div>
+                        </div>
+                        <div class="absolute inset-0 rounded-full radar-sweep pointer-events-none" style="background: conic-gradient(from 0deg, transparent 0deg 300deg, rgba(244, 63, 94, 0.3) 360deg);"></div>
+
+                        <!-- Radar Nearby Nodes -->
+                        <div class="absolute top-4 left-6 group cursor-pointer" onclick="switchDatingSubTab('whisper')">
+                            <img src="https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=120&q=80" class="w-8 h-8 rounded-full object-cover border-2 border-rose-400 shadow-md">
+                            <span class="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 bg-slate-900 text-white text-[8px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">May (500m)</span>
+                        </div>
+                        <div class="absolute bottom-6 right-6 group cursor-pointer" onclick="switchDatingSubTab('whisper')">
+                            <img src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=120&q=80" class="w-8 h-8 rounded-full object-cover border-2 border-rose-400 shadow-md">
+                            <span class="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 bg-slate-900 text-white text-[8px] px-1.5 py-0.5 rounded-full font-bold whitespace-nowrap">Htet (1.2km)</span>
+                        </div>
+                    </div>
+                    <p class="mt-4 text-xs font-semibold text-slate-500 text-center">Scanning BeeTalk Radar users nearby...</p>
+                </div>
+
+                <!-- Sub-View B: Dating Swipe Cards -->
+                <div id="datingSubView-swipe" class="hidden flex justify-center">
+                    <div class="w-full bg-white dark:bg-slate-800 rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-lg relative">
+                        <img id="swipeCardImage" src="https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=600&q=80" class="w-full h-72 object-cover">
+                        <div class="p-3 bg-gradient-to-t from-slate-950/90 via-slate-950/50 to-transparent absolute bottom-14 inset-x-0 text-white">
+                            <h3 id="swipeCardName" class="text-lg font-bold">Khine Wint, 24</h3>
+                            <p id="swipeCardBio" class="text-[10px] text-slate-200">Kamayut Township • Coffee Lover ☕</p>
+                        </div>
+                        <div class="p-3 bg-white dark:bg-slate-800 flex items-center justify-around">
+                            <button onclick="handleSwipe('dislike')" class="w-10 h-10 rounded-full border border-slate-300 text-slate-400 flex items-center justify-center text-sm"><i class="fa-solid fa-xmark"></i></button>
+                            <button onclick="handleSwipe('like')" class="w-12 h-12 rounded-full bg-rose-500 text-white shadow-md flex items-center justify-center text-base"><i class="fa-solid fa-heart"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sub-View C: Whisper Mode Container -->
+                <div id="datingSubView-whisper" class="hidden bg-white dark:bg-slate-800 rounded-2xl p-3 border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
+                    <div class="border-b border-slate-100 dark:border-slate-700 pb-2">
+                        <h4 class="font-bold text-xs text-purple-600 flex items-center gap-1.5"><i class="fa-solid fa-user-secret"></i> BeeTalk Whisper Chat</h4>
+                        <p class="text-[10px] text-slate-400">Messages auto-delete immediately after read.</p>
+                    </div>
+                    <div id="whisperMessagesBox" class="h-48 bg-slate-50 dark:bg-slate-900 rounded-xl p-3 overflow-y-auto space-y-2">
+                        <div class="text-center text-[10px] text-slate-400 italic">Whisper chat active with May Thet</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="whisperInput" placeholder="Send self-destruct whisper..." class="flex-1 bg-slate-100 dark:bg-slate-700 text-xs px-3 py-2 rounded-full outline-none">
+                        <button onclick="sendWhisperMessage()" class="px-3.5 py-2 bg-purple-600 text-white font-bold rounded-full text-xs">Send</button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- VIEW 3: E-COMMERCE MARKETPLACE -->
+            <main id="view-market" class="view-panel hidden space-y-3">
+                <div class="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-2xl p-4 text-white shadow-md">
+                    <h3 class="text-base font-bold">Hyper-Local Marketplace</h3>
+                    <p class="text-[10px] text-emerald-100">Trade items in MMK or Nexus Coins locally.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-white dark:bg-slate-800 rounded-2xl p-2.5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-2">
+                        <img src="https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=80" class="w-full h-28 object-cover rounded-xl">
+                        <h4 class="font-bold text-xs truncate">Nike Air Jordan</h4>
+                        <div class="text-[10px] font-bold text-amber-600 dark:text-amber-400">120 Coins</div>
+                        <button onclick="triggerBusinessChat('Nike Air Jordan', '120 Coins')" class="w-full py-1.5 bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-950 font-bold text-[10px] rounded-lg">Buy / Chat</button>
+                    </div>
+                    <div class="bg-white dark:bg-slate-800 rounded-2xl p-2.5 border border-slate-200 dark:border-slate-700 shadow-sm space-y-2">
+                        <img src="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=400&q=80" class="w-full h-28 object-cover rounded-xl">
+                        <h4 class="font-bold text-xs truncate">Sony Headphones</h4>
+                        <div class="text-[10px] font-bold text-amber-600 dark:text-amber-400">350 Coins</div>
+                        <button onclick="triggerBusinessChat('Sony Headphones', '350 Coins')" class="w-full py-1.5 bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-950 font-bold text-[10px] rounded-lg">Buy / Chat</button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- VIEW 4: UNIFIED CHAT ENGINE (PERSONAL VS BUSINESS) -->
+            <main id="view-chat" class="view-panel hidden bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col h-[480px] overflow-hidden">
+                <div class="p-2 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+                    <div class="grid grid-cols-2 gap-1 p-1 bg-slate-200 dark:bg-slate-700 rounded-xl">
+                        <button id="chatModeBtn-personal" onclick="switchChatMode('personal')" class="py-1 text-xs font-bold rounded-lg bg-white dark:bg-slate-800 text-amber-600 dark:text-amber-400">Personal</button>
+                        <button id="chatModeBtn-business" onclick="switchChatMode('business')" class="py-1 text-xs font-bold text-slate-500 rounded-lg">Business</button>
+                    </div>
+                </div>
+                <div id="activeChatMessages" class="flex-1 p-3 overflow-y-auto space-y-2 text-xs">
+                    <div class="bg-slate-100 dark:bg-slate-700 p-2.5 rounded-2xl max-w-[80%]">မင်္ဂလာပါ။ ဘာကူညီပေးရမလဲခင်ဗျာ?</div>
+                </div>
+                <div class="p-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-2">
+                    <input type="text" id="activeChatInput" placeholder="Type a message..." class="flex-1 bg-slate-100 dark:bg-slate-700 text-xs px-3 py-2 rounded-full outline-none">
+                    <button onclick="sendActiveChatMessage()" class="w-8 h-8 bg-amber-500 text-white rounded-full flex items-center justify-center text-xs"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+            </main>
+
+            <!-- VIEW 5: DATABASE PROFILE SEPARATION DASHBOARD -->
+            <main id="view-profile" class="view-panel hidden space-y-4">
+                <!-- Profile Database Selector Tabs -->
+                <div class="flex rounded-2xl bg-slate-200 dark:bg-slate-800 p-1">
+                    <button id="profileTab-user" onclick="switchProfileTab('user')" class="flex-1 py-1.5 text-xs font-bold rounded-xl bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-sm transition">
+                        User Profile (DB: user_profiles)
+                    </button>
+                    <button id="profileTab-dating" onclick="switchProfileTab('dating')" class="flex-1 py-1.5 text-xs font-bold rounded-xl text-slate-500 dark:text-slate-400 transition">
+                        Dating Profile (DB: dating_profiles)
+                    </button>
+                </div>
+
+                <!-- USER_PROFILES SCHEMA CONTAINER -->
+                <div id="profileContainer-user" class="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
+                    <div class="flex items-center gap-3">
+                        <img id="displayUserAvatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80" class="w-14 h-14 rounded-full object-cover border-2 border-amber-500">
+                        <div>
+                            <h4 id="displayUserName" class="font-bold text-sm">Thandar Myint</h4>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 font-bold uppercase">Main Account</span>
+                        </div>
+                    </div>
+                    <div class="space-y-2 text-xs">
+                        <label class="block font-semibold text-slate-400">Main Account Real Name</label>
+                        <input type="text" id="inputRealName" value="Thandar Myint" class="w-full bg-slate-100 dark:bg-slate-700 px-3 py-2 rounded-xl outline-none">
+                        
+                        <label class="block font-semibold text-slate-400">Township Address</label>
+                        <input type="text" id="inputTownship" value="Kamayut, Yangon" class="w-full bg-slate-100 dark:bg-slate-700 px-3 py-2 rounded-xl outline-none" readonly>
+                        
+                        <button onclick="saveUserProfile()" class="w-full py-2 bg-amber-500 text-white font-bold rounded-xl mt-2">Save User Profile Data</button>
+                    </div>
+                </div>
+
+                <!-- DATING_PROFILES SCHEMA CONTAINER (SEPARATE TABLE) -->
+                <div id="profileContainer-dating" class="hidden bg-white dark:bg-slate-800 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm space-y-3">
+                    <div class="flex items-center gap-3">
+                        <img id="displayDatingAvatar" src="https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=120&q=80" class="w-14 h-14 rounded-full object-cover border-2 border-rose-500">
+                        <div>
+                            <h4 id="displayDatingNickname" class="font-bold text-sm">Cherry (BeeTalk)</h4>
+                            <span class="text-[10px] px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 font-bold uppercase">Separate Dating Schema</span>
+                        </div>
+                    </div>
+                    <div class="space-y-2 text-xs">
+                        <label class="block font-semibold text-slate-400">Dating Nickname (Isolated)</label>
+                        <input type="text" id="inputDatingNickname" value="Cherry (BeeTalk)" class="w-full bg-slate-100 dark:bg-slate-700 px-3 py-2 rounded-xl outline-none">
+
+                        <label class="block font-semibold text-slate-400">Dating Bio & Preferences</label>
+                        <textarea id="inputDatingBio" class="w-full bg-slate-100 dark:bg-slate-700 px-3 py-2 rounded-xl outline-none h-16">Coffee lover & Traveler ☕✨</textarea>
+
+                        <div class="flex items-center justify-between pt-1">
+                            <span class="text-slate-400 text-[11px]">Hide from Social Friends</span>
+                            <input type="checkbox" checked class="accent-rose-500">
+                        </div>
+
+                        <button onclick="saveDatingProfile()" class="w-full py-2 bg-rose-500 text-white font-bold rounded-xl mt-2">Save Dating Profile Data</button>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- BOTTOM MOBILE NAVIGATION BAR -->
+        <nav class="sticky bottom-0 z-40 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-2 py-2 flex items-center justify-around">
+            <button id="nav-home" onclick="switchMainTab('home')" class="nav-btn active flex flex-col items-center gap-0.5 text-amber-600 dark:text-amber-400">
+                <i class="fa-solid fa-newspaper text-base"></i>
+                <span class="text-[10px] font-bold">Social</span>
+            </button>
+            <button id="nav-dating" onclick="switchMainTab('dating')" class="nav-btn flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <i class="fa-solid fa-heart text-base text-rose-500"></i>
+                <span class="text-[10px] font-bold">Dating</span>
+            </button>
+            <button id="nav-market" onclick="switchMainTab('market')" class="nav-btn flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <i class="fa-solid fa-store text-base text-emerald-500"></i>
+                <span class="text-[10px] font-bold">Market</span>
+            </button>
+            <button id="nav-chat" onclick="switchMainTab('chat')" class="nav-btn flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 relative">
+                <i class="fa-solid fa-comments text-base text-indigo-500"></i>
+                <span class="text-[10px] font-bold">Chat</span>
+            </button>
+            <button id="nav-profile" onclick="switchMainTab('profile')" class="nav-btn flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <i class="fa-solid fa-user-gear text-base text-cyan-500"></i>
+                <span class="text-[10px] font-bold">Profiles</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- TOP-UP MODAL -->
+    <div id="topUpModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
+        <div class="bg-white dark:bg-slate-800 rounded-3xl max-w-xs w-full p-4 border border-slate-200 dark:border-slate-700 shadow-2xl space-y-3">
+            <div class="flex items-center justify-between">
+                <h4 class="font-bold text-sm text-amber-500 flex items-center gap-1.5"><i class="fa-solid fa-coins"></i> Request Nexus Coins</h4>
+                <button onclick="closeTopUpModal()" class="text-slate-400 text-xs"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+                <button onclick="addCoins(500)" class="p-2 rounded-xl border border-amber-500/40 text-center font-bold text-xs text-amber-600 dark:text-amber-400">+500</button>
+                <button onclick="addCoins(1000)" class="p-2 rounded-xl border border-amber-500/40 text-center font-bold text-xs text-amber-600 dark:text-amber-400">+1000</button>
+                <button onclick="addCoins(2500)" class="p-2 rounded-xl border border-amber-500/40 text-center font-bold text-xs text-amber-600 dark:text-amber-400">+2500</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,79 @@
+name: nexus-local
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: nexus_local_only
+      POSTGRES_DB: nexus
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus -d nexus"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7.4-alpine
+    ports: ["127.0.0.1:6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://nexus:nexus_local_only@postgres:5432/nexus?sslmode=disable
+      NEXUS_APP_DB_PASSWORD: ${NEXUS_APP_DB_PASSWORD:?set in .env}
+      NEXUS_MODERATOR_DB_PASSWORD: ${NEXUS_MODERATOR_DB_PASSWORD:?set in .env}
+      NEXUS_JANITOR_DB_PASSWORD: ${NEXUS_JANITOR_DB_PASSWORD:?set in .env}
+    entrypoint: ["/app/migrate"]
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://nexus_app:${NEXUS_APP_DB_PASSWORD}@postgres:5432/nexus?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+  janitor:
+    profiles: ["ops"]
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://nexus_janitor:${NEXUS_JANITOR_DB_PASSWORD}@postgres:5432/nexus?sslmode=disable
+    entrypoint: ["/app/janitor"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  moderate:
+    profiles: ["ops"]
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://nexus_moderator:${NEXUS_MODERATOR_DB_PASSWORD}@postgres:5432/nexus?sslmode=disable
+    entrypoint: ["/app/moderate"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+volumes:
+  postgres-data:
+  redis-data:

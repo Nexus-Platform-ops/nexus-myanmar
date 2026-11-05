@@ -1,0 +1,7 @@
+# Device flow template — not executed in this package's local verification.
+appId: app.nexus.nexus_mobile
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Nexus"
+- takeScreenshot: onboarding

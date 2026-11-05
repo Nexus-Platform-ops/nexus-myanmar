@@ -1,0 +1,60 @@
+name: Verify Nexus
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: nexus
+          POSTGRES_PASSWORD: nexus_local_only
+          POSTGRES_DB: nexus_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U nexus -d nexus_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgres://nexus:nexus_local_only@localhost:5432/nexus_test?sslmode=disable
+      TEST_APP_DATABASE_URL: postgres://nexus_app:nexus_app_ci_only_pw@localhost:5432/nexus_test?sslmode=disable
+      NEXUS_APP_DB_PASSWORD: nexus_app_ci_only_pw
+      NEXUS_MODERATOR_DB_PASSWORD: nexus_mod_ci_only_pw1
+      NEXUS_JANITOR_DB_PASSWORD: nexus_jan_ci_only_pw2
+      NEXUS_INTEGRATION: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.5', cache: true}
+      - run: go run ./cmd/migrate
+      - run: test -z "$(gofmt -l cmd internal)"
+      - run: go vet ./... && go test -race -count=1 -coverprofile=coverage.out ./...
+      - run: go build ./cmd/...
+      - run: python3 scripts/guardrails.py
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: {flutter-version: '3.47.9', channel: stable, cache: true}
+      - run: flutter pub get
+        working-directory: apps/mobile
+      - run: dart format --output=none --set-exit-if-changed lib test && flutter analyze --fatal-infos && flutter test --timeout 45s
+        working-directory: apps/mobile
+      - run: flutter build web --release --no-wasm-dry-run --dart-define=API_BASE=https://api.nexus.example
+        working-directory: apps/mobile
+  graphql:
+    runs-on: ubuntu-latest
+    defaults:
+      run: {working-directory: services/bff}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - run: npm ci --no-fund
+      - run: npm test
+      - run: npm audit --omit=dev

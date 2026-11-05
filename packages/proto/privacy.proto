@@ -1,0 +1,17 @@
+syntax = "proto3";
+package nexus.privacy.v1;
+// Contract sketch for future service extraction; not a deployed gRPC service.
+message DatingCard {
+ string profile_id = 1;
+ string nickname = 2;
+ uint32 age = 3;
+ string distance_bucket = 4;
+ string township = 5;
+ repeated string interests = 6;
+}
+message RadarBlip {
+ string blip_id = 1;
+ string distance_bucket = 2;
+ uint32 display_ring = 3;
+ uint32 display_angle = 4; // Synthetic UI angle, never a real bearing.
+}

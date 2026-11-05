@@ -1,0 +1,8 @@
+{
+  "api_readiness": "PASS",
+  "development_otp_login": "PASS",
+  "social_profile_write": "PASS",
+  "authenticated_graphql_to_rest": "PASS",
+  "delete_synthetic_account": "PASS",
+  "credentials_logged": false
+}

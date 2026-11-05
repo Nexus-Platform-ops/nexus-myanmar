@@ -1,0 +1,27 @@
+{
+  "source_files": [
+    {
+      "path": "docs/sources/BeeTalk_Platform_Design.md",
+      "bytes": 40453,
+      "sha256": "eb214395a7b2010fa99db4c007dfb813505a9e8e6f673e3d62f345343e5ff55e"
+    },
+    {
+      "path": "docs/sources/Nexus_Developer_Build_Guide.docx",
+      "bytes": 23696,
+      "sha256": "226caf103f235f39c6fbaba937010b929943e1f863acff143de53ed79f69d366",
+      "extracted_text_characters": 19472,
+      "contains_final_checklist": true
+    },
+    {
+      "path": "docs/sources/Nexus_Developer_Build_Guide.md",
+      "bytes": 22056,
+      "sha256": "794c1000deec54bf3f36d8fe9dc1642e566f12ccbea56f5a4b26dd76abd69910"
+    },
+    {
+      "path": "docs/sources/myanmar_superapp_unified_ecosystem.html",
+      "bytes": 41009,
+      "sha256": "85441d5f341698824dc10f1cf6a6ff3efe9736285d0a2e08d119c03e6fe015fc"
+    }
+  ],
+  "basis": "Markdown documents were read in full; DOCX container/text structure checked separately. Original HTML archived, not executed as app."
+}
