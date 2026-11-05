@@ -21,6 +21,13 @@ Date: 2026-11-05. Scope: roadmap v3 §17 blocker 2 — first reader wiped the wh
 
 Local: `gofmt` clean, `go vet` clean, `go test -count=1 ./...` ok, `go build ./cmd/...` ok. Live integration (`group_whisper_per_recipient`, existing `mutual_match_and_whisper`) runs on the CI backend lane with race detector — pending project-side CI run, same environment limits as P0-1.
 
+CI closure (designated evidence tier — GitHub Actions run 42101894966 on commit b29a749, 2026-11-05, all jobs success):
+
+- Backend lane under race detector, `NEXUS_INTEGRATION=1`: `TestIntegration` package ok — `mutual_match_and_whisper` (1:1 whisper path unchanged) and `group_whisper_per_recipient` (first reader hides for self only; last reader triggers physical wipe; dedup replay reports expired) both PASS.
+- Test-isolation fix en route: `report_high_lock` now restores `safety.blocks` + `restricted` so the scenario is not falsely blocked (found by CI run 42100241341).
+
+**Status: CLOSED (2026-11-05).**
+
 ## Note
 
 Unread Whisper rows now persist until every recipient reads them or a retention job appears; there is still no time-based Whisper expiry. `chat.whisper_reads` rows cascade-delete with their message. Flag for a future retention decision, not blocking this fix.
