@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -90,7 +91,10 @@ func assignRolePasswords(ctx context.Context, c *pgx.Conn) error {
 			return fmt.Errorf("operational role passwords must be distinct (%s reuses another)", env)
 		}
 		seen[pw] = true
-		if _, e := c.Exec(ctx, "ALTER ROLE "+role+" WITH LOGIN PASSWORD $1", pw); e != nil {
+		// ALTER ROLE is a utility statement and rejects bind parameters; the
+		// literal must be single-quote escaped inline.
+		literal := strings.ReplaceAll(pw, "'", "''")
+		if _, e := c.Exec(ctx, "ALTER ROLE "+role+" WITH LOGIN PASSWORD '"+literal+"'"); e != nil {
 			return fmt.Errorf("activating role %s: %w", role, e)
 		}
 	}
