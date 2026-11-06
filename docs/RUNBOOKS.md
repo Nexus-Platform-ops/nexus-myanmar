@@ -31,6 +31,18 @@ REVIEWER_NAME=alice REVIEWER_PASSWORD='...' moderate appeal <appeal-uuid> OVERTU
 `safety.audit.actor` records the reviewer_id for `MODERATE_*` and `APPEAL_*` rows. The moderator role can read `safety.reviewers` and update only `decisions_count`; it cannot create reviewers or change password hashes. A reviewer cannot decide an appeal on their own decision. Overturning a `MODERATE_*_REMOVED` decision restores the content to `LIVE`. Do not rotate a reviewer by deleting rows — disable them, so audit attribution survives.
 
 
+## DSR erasure (010_dsr_purge)
+`DELETE /v1/account` no longer deletes inline. It records `identity.deletion_requests` with a 30-day `purge_after`, revokes every session except the requesting one, hides the account as ghost, and blocks writes (`403 account_pending_deletion`); OTP login is also refused while the request is pending. The user can read `GET /v1/account/deletion` and reverse the request with `POST /v1/account/deletion/cancel` from that surviving session. Reversal restores ghost=false; a previously ghosted account therefore becomes visible again.
+
+Run the fan-out daily with the owner-level DSN (same break-glass rules as migrations; it is not available to the API or janitor roles):
+
+```sh
+ADMIN_DATABASE_URL=postgres://nexus:...@host/nexus purge
+```
+
+One run erases up to 100 due accounts in a single transaction: OTP rows by phone hash, outbox rows, the account itself (sessions, social, dating, safety, chat membership and sent messages cascade), and rooms left with fewer than two members. Counts only are printed — never identifiers. This is not a legal retention policy: backups/WAL/PITR and evidence escrow are outside the job and are still an S4/legal gate.
+
+
 ## Backups and disaster recovery
 Production target is source RPO15min/RTO1h, but not demonstrated. Provision encrypted database storage/backups, private access and region controls. Rehearse restore to a new isolated stack, verify schema/session revocation/Whisper retention behavior, replay only safe content-free events, and collect timed recovery evidence. A local Compose volume is not a backup strategy.
 

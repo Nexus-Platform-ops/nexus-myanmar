@@ -179,7 +179,7 @@ func (s *Server) routes() {
 			return fail(503, "dependency_unavailable")
 		}
 		var v int
-		if s.DB.QueryRow(ctx, "SELECT version FROM identity.schema_version").Scan(&v) != nil || v < 8 {
+		if s.DB.QueryRow(ctx, "SELECT version FROM identity.schema_version").Scan(&v) != nil || v < 10 {
 			return fail(503, "schema_mismatch")
 		}
 		write(w, 200, map[string]any{"status": "ready", "release": "development-baseline"})
@@ -237,8 +237,17 @@ func (s *Server) routes() {
 	s.protected("GET /v1/safety/blocks", s.blocks)
 	s.protected("DELETE /v1/safety/blocks/{id}", s.unblock)
 	s.protected("POST /v1/safety/ghost", s.ghost)
+	s.protected("GET /v1/safety/trusted-contacts", s.trustedContacts)
+	s.protected("POST /v1/safety/trusted-contacts", s.addTrustedContact)
+	s.protected("DELETE /v1/safety/trusted-contacts/{id}", s.removeTrustedContact)
+	s.protected("GET /v1/safety/checkins", s.checkins)
+	s.protected("POST /v1/safety/checkins", s.createCheckin)
+	s.protected("POST /v1/safety/checkins/{id}/confirm", s.confirmCheckin)
+	s.protected("POST /v1/safety/checkins/{id}/cancel", s.cancelCheckin)
 	s.protected("POST /v1/safety/capture-alert", s.capture)
 	s.protected("GET /v1/account/export", s.export)
+	s.protected("GET /v1/account/deletion", s.deletionStatus)
+	s.protected("POST /v1/account/deletion/cancel", s.cancelDeletion)
 	s.protected("DELETE /v1/account", s.deleteAccount)
 	s.protected("POST /v1/realtime/ticket", s.ticket)
 	s.route("GET /v1/ws", s.websocket)
@@ -319,10 +328,13 @@ func (s *Server) tokens(user, session string) (string, error) {
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString([]byte(s.Cfg.JWTSecret))
 }
 func (s *Server) mayWrite(ctx context.Context, user string) error {
-	var verified, restricted, ghost bool
-	err := s.DB.QueryRow(ctx, "SELECT phone_verified,restricted,ghost FROM identity.accounts WHERE id=$1", user).Scan(&verified, &restricted, &ghost)
+	var verified, restricted, ghost, pending bool
+	err := s.DB.QueryRow(ctx, `SELECT a.phone_verified,a.restricted,a.ghost,EXISTS(SELECT 1 FROM identity.deletion_requests d WHERE d.user_id=a.id) FROM identity.accounts a WHERE a.id=$1`, user).Scan(&verified, &restricted, &ghost, &pending)
 	if err != nil {
 		return err
+	}
+	if pending {
+		return fail(403, "account_pending_deletion")
 	}
 	if !verified || restricted || ghost {
 		return fail(403, "account_read_only")

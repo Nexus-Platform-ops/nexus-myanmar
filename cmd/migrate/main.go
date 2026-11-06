@@ -30,6 +30,8 @@ var steps = []struct {
 	{6, "db/migrations/006_moderation.sql"},
 	{7, "db/migrations/007_backlog_p1.sql"},
 	{8, "db/migrations/008_realtime_outbox.sql"},
+	{9, "db/migrations/009_meet_safe.sql"},
+	{10, "db/migrations/010_dsr_purge.sql"},
 }
 
 // operationalLogin roles receive passwords from env after DDL applies; they are

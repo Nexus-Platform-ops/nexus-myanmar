@@ -22,8 +22,8 @@ refers to it.
 | ID | Item | Source gap | Status |
 |---|---|---|---|
 | P2-1 | Ordered WebSocket payloads / replay cursor across disconnects | READINESS 10, 11 | implemented, CI pending |
-| P2-2 | Meet-Safe trusted contacts and delayed check-in | READINESS D |
-| P2-3 | DSR purge fan-out (30-day grace job, cross-store delete) | READINESS H, 12 |
+| P2-2 | Meet-Safe trusted contacts and delayed check-in | READINESS D | implemented, CI pending |
+| P2-3 | DSR purge fan-out (30-day grace job, cross-store delete) | READINESS H, 12 | implemented, CI pending |
 | P2-4 | Media upload/purge/evidence escrow | READINESS B, F |
 | P2-5 | Per-domain app roles / analytics isolation prep | READINESS 4 |
 | P2-6 | k6 staging load harness and p95 measurement scripts | READINESS 10 |

@@ -134,6 +134,13 @@ func (s *Server) otpVerify(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	var pending bool
+	if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM identity.deletion_requests WHERE user_id=$1)`, user).Scan(&pending); err != nil {
+		return err
+	}
+	if pending {
+		return fail(403, "account_pending_deletion")
+	}
 	if _, err = tx.Exec(r.Context(), "UPDATE identity.otp SET consumed=true WHERE phone_hash=$1", ph); err != nil {
 		return err
 	}

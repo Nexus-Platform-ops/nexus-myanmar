@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"nexus/internal/moderation"
+	"nexus/internal/retention"
 )
 
 func TestAdultBoundary(t *testing.T) {
@@ -837,6 +838,140 @@ func TestIntegration(t *testing.T) {
 		f.exec("DELETE FROM social.notifications WHERE user_id=$1 AND kind='PROBE'", f.users[4])
 		f.exec("DELETE FROM social.notification_prefs WHERE user_id=$1", f.users[4])
 	})
+	run("meet_safe_trusted_contacts", func(t *testing.T) {
+		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": f.users[0], "label": "Me"}, 400)
+		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": "nope", "label": "X"}, 400)
+		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": f.users[1], "label": "   "}, 400)
+		f.exec("UPDATE identity.accounts SET ghost=true WHERE id=$1", f.users[8])
+		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": f.users[8], "label": "Ghost"}, 404)
+		f.exec("UPDATE identity.accounts SET ghost=false WHERE id=$1", f.users[8])
+		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": f.users[1], "label": "Sister"}, 201)
+		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": f.users[1], "label": "Elder sister"}, 201)
+		items := f.expect(0, "GET", "/v1/safety/trusted-contacts", nil, 200)["items"].([]any)
+		if len(items) != 1 || items[0].(map[string]any)["label"] != "Elder sister" || items[0].(map[string]any)["real_name"] != "Social Person 1" {
+			t.Fatalf("trusted contact upsert failed: %v", items)
+		}
+		f.expect(0, "POST", "/v1/safety/block", DataMap{"target_id": f.users[1]}, 200)
+		if n := len(f.expect(0, "GET", "/v1/safety/trusted-contacts", nil, 200)["items"].([]any)); n != 0 {
+			t.Fatal("blocked contact still listed")
+		}
+		f.expect(0, "DELETE", "/v1/safety/blocks/"+f.users[1], nil, 204)
+		f.expect(0, "DELETE", "/v1/safety/trusted-contacts/"+f.users[1], nil, 204)
+		f.expect(0, "DELETE", "/v1/safety/trusted-contacts/"+f.users[1], nil, 404)
+	})
+	run("meet_safe_checkin_flow", func(t *testing.T) {
+		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": f.users[2], "label": "Friend"}, 201)
+		f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Kandawgyi", "minutes": 1}, 400)
+		f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": " ", "minutes": 60}, 400)
+		f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Kandawgyi", "minutes": 60, "event_id": uuid.NewString()}, 400)
+		d := f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Kandawgyi", "minutes": 60}, 201)
+		id := d["id"].(string)
+		if d["status"] != "PENDING" {
+			t.Fatal(d)
+		}
+		if n := len(f.expect(2, "GET", "/v1/safety/checkins?role=contact", nil, 200)["items"].([]any)); n != 1 {
+			t.Fatalf("contact cannot see check-in: %d", n)
+		}
+		if n := len(f.expect(3, "GET", "/v1/safety/checkins?role=contact", nil, 200)["items"].([]any)); n != 0 {
+			t.Fatal("non-contact saw check-in")
+		}
+		if n := len(f.expect(2, "GET", "/v1/notifications?category=SAFETY", nil, 200)["items"].([]any)); n < 1 {
+			t.Fatal("trusted contact not notified")
+		}
+		f.expect(3, "POST", "/v1/safety/checkins/"+id+"/confirm", DataMap{}, 404)
+		f.expect(0, "POST", "/v1/safety/checkins/"+id+"/confirm", DataMap{}, 200)
+		f.expect(0, "POST", "/v1/safety/checkins/"+id+"/confirm", DataMap{}, 409)
+		if n := len(f.expect(2, "GET", "/v1/safety/checkins?role=contact", nil, 200)["items"].([]any)); n != 1 {
+			t.Fatal("resolved check-in hidden from contact")
+		}
+		// An overdue check-in stays PENDING in storage and is reported as OVERDUE.
+		d = f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Sule", "minutes": 30}, 201)
+		late := d["id"].(string)
+		f.exec("UPDATE safety.checkins SET due_at=now()-interval '1 minute' WHERE id=$1", late)
+		items := f.expect(0, "GET", "/v1/safety/checkins", nil, 200)["items"].([]any)
+		var status string
+		for _, v := range items {
+			if m := v.(map[string]any); m["id"] == late {
+				status = m["status"].(string)
+			}
+		}
+		if status != "OVERDUE" {
+			t.Fatalf("overdue not derived: %q", status)
+		}
+		f.expect(0, "POST", "/v1/safety/checkins/"+late+"/cancel", DataMap{}, 200)
+		f.expect(0, "GET", "/v1/safety/checkins?role=bogus", nil, 400)
+		f.exec("DELETE FROM safety.checkins WHERE user_id=$1", f.users[0])
+		f.exec("DELETE FROM safety.trusted_contacts WHERE user_id=$1", f.users[0])
+		f.exec("DELETE FROM social.notifications WHERE user_id=$1 AND kind LIKE 'CHECKIN_%'", f.users[2])
+	})
+	run("account_deletion_grace_and_purge", func(t *testing.T) {
+		ctx := context.Background()
+		f.exec("INSERT INTO identity.sessions(id,user_id,refresh_hash,device_label,expires_at) VALUES($1,$2,$3,'other',now()+interval '1 day')", uuid.NewString(), f.users[6], randomToken())
+		code := "654321"
+		ph := "fixture6"
+		var challenge string
+		if err := f.boot.QueryRow(ctx, `INSERT INTO identity.otp(phone_hash,phone_cipher,code_hash,expires_at) VALUES($1,pgp_sym_encrypt('private',$2),$3,now()+interval '5 minutes') RETURNING id`, ph, f.s.Cfg.DataKey, keyed(f.s.Cfg.OTPSecret, ph+":"+code)).Scan(&challenge); err != nil {
+			t.Fatal(err)
+		}
+		f.expect(6, "DELETE", "/v1/account", DataMap{"confirm": "yes"}, 400)
+		d := f.expect(6, "DELETE", "/v1/account", DataMap{"confirm": "DELETE MY ACCOUNT"}, 202)
+		if d["purge_after"] == nil || d["requested_at"] == nil {
+			t.Fatalf("missing grace window: %v", d)
+		}
+		var sessions int
+		if err := f.boot.QueryRow(ctx, "SELECT count(*) FROM identity.sessions WHERE user_id=$1", f.users[6]).Scan(&sessions); err != nil {
+			t.Fatal(err)
+		}
+		if sessions != 1 {
+			t.Fatalf("other sessions survived: %d", sessions)
+		}
+		if d = f.expect(6, "GET", "/v1/account/deletion", nil, 200); d["pending"] != true {
+			t.Fatalf("deletion not pending: %v", d)
+		}
+		f.expect(6, "POST", "/v1/posts", DataMap{"body": "still here", "audience": "PUBLIC", "township": "kamayut"}, 403)
+		// A pending deletion cannot be re-entered by OTP login on a new device.
+		f.expect(-1, "POST", "/v1/auth/otp/verify", DataMap{"challenge_id": challenge, "code": code, "dob": "1997-01-01", "device": "probe"}, 403)
+		f.expect(6, "POST", "/v1/account/deletion/cancel", DataMap{}, 204)
+		if d = f.expect(6, "GET", "/v1/account/deletion", nil, 200); d["pending"] != false {
+			t.Fatalf("deletion still pending: %v", d)
+		}
+		f.expect(6, "POST", "/v1/account/deletion/cancel", DataMap{}, 404)
+		f.expect(6, "POST", "/v1/posts", DataMap{"body": "back again", "audience": "PUBLIC", "township": "kamayut"}, 202)
+
+		// Fan-out erases the account, sessions, non-FK rows and the orphaned room.
+		probe, rid := uuid.NewString(), uuid.NewString()
+		f.exec(`INSERT INTO identity.accounts(id,phone_hash,phone_cipher,dob,phone_verified) VALUES($1,'purge_probe',pgp_sym_encrypt('private',$2),'1997-01-01',true)`, probe, f.s.Cfg.DataKey)
+		f.exec("INSERT INTO identity.sessions(id,user_id,refresh_hash,device_label,expires_at) VALUES($1,$2,$3,'probe',now()+interval '1 day')", uuid.NewString(), probe, randomToken())
+		f.exec("INSERT INTO identity.otp(phone_hash,phone_cipher,code_hash,expires_at) VALUES('purge_probe',pgp_sym_encrypt('x',$1),'x',now()+interval '5 minutes')", f.s.Cfg.DataKey)
+		f.exec("INSERT INTO chat.rooms(id,kind) VALUES($1,'SOCIAL')", rid)
+		f.exec("INSERT INTO chat.members(room_id,user_id) VALUES($1,$2)", rid, probe)
+		f.exec("INSERT INTO private.outbox(topic,user_id,payload) VALUES('probe',$1,'{}'::jsonb)", probe)
+		f.exec("INSERT INTO identity.deletion_requests(user_id,requested_at,purge_after) VALUES($1,now()-interval '31 days',now()-interval '1 second')", probe)
+		n, err := retention.PurgeDue(ctx, f.boot)
+		if err != nil || n != 1 {
+			t.Fatalf("purge: %d %v", n, err)
+		}
+		for _, q := range []struct {
+			sql  string
+			args []any
+		}{
+			{"SELECT count(*) FROM identity.accounts WHERE id=$1", []any{probe}},
+			{"SELECT count(*) FROM identity.sessions WHERE user_id=$1", []any{probe}},
+			{"SELECT count(*) FROM identity.otp WHERE phone_hash='purge_probe'", nil},
+			{"SELECT count(*) FROM chat.rooms WHERE id=$1", []any{rid}},
+			{"SELECT count(*) FROM chat.members WHERE user_id=$1", []any{probe}},
+			{"SELECT count(*) FROM private.outbox WHERE user_id=$1", []any{probe}},
+			{"SELECT count(*) FROM identity.deletion_requests WHERE user_id=$1", []any{probe}},
+		} {
+			var left int
+			if err := f.boot.QueryRow(ctx, q.sql, q.args...).Scan(&left); err != nil {
+				t.Fatal(err)
+			}
+			if left != 0 {
+				t.Fatalf("purge left %d rows for %s", left, q.sql)
+			}
+		}
+	})
 	run("search_pagination_and_recents", func(t *testing.T) {
 		for i := 0; i < 22; i++ {
 			f.exec(`INSERT INTO social.posts(author,body,township,audience,status) VALUES($1,'CursorFixture','kamayut','PUBLIC','LIVE')`, f.users[0])
@@ -925,10 +1060,19 @@ func TestIntegration(t *testing.T) {
 		b["code"] = ch["development_code"]
 		f.expect(-1, "POST", "/v1/auth/otp/verify", b, 401)
 	})
-	run("account_delete_revokes", func(t *testing.T) {
+	run("account_delete_grace", func(t *testing.T) {
 		f.expect(8, "DELETE", "/v1/account", DataMap{"confirm": "no"}, 400)
-		f.expect(8, "DELETE", "/v1/account", DataMap{"confirm": "DELETE MY ACCOUNT"}, 204)
-		f.expect(8, "GET", "/v1/profile", nil, 401)
+		d := f.expect(8, "DELETE", "/v1/account", DataMap{"confirm": "DELETE MY ACCOUNT"}, 202)
+		if d["purge_after"] == nil {
+			t.Fatalf("missing grace window: %v", d)
+		}
+		var ghost bool
+		if err := f.boot.QueryRow(context.Background(), "SELECT ghost FROM identity.accounts WHERE id=$1", f.users[8]).Scan(&ghost); err != nil || !ghost {
+			t.Fatalf("pending account not hidden: %v", err)
+		}
+		f.expect(8, "GET", "/v1/profile", nil, 200)
+		f.expect(8, "POST", "/v1/account/deletion/cancel", DataMap{}, 204)
+		f.expect(8, "GET", "/v1/account/deletion", nil, 200)
 	})
 	run("moderation_named_reviewer_and_appeals", func(t *testing.T) {
 		ctx := context.Background()

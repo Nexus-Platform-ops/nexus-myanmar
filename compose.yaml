@@ -75,6 +75,17 @@ services:
     entrypoint: ["/app/moderate"]
     depends_on:
       migrate: {condition: service_completed_successfully}
+  purge:
+    profiles: ["ops"]
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.api
+    env_file: .env
+    environment:
+      ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:-}
+    entrypoint: ["/app/purge"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
 volumes:
   postgres-data:
   redis-data:

@@ -382,16 +382,54 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer tx.Rollback(r.Context())
+	// The grace period is reversible, but other devices lose access immediately;
+	// the requesting session survives so deletion can be checked or cancelled.
+	if _, err = tx.Exec(r.Context(), `DELETE FROM identity.sessions WHERE user_id=$1 AND id<>$2`, who(r).ID, who(r).Session); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(r.Context(), `DELETE FROM private.outbox WHERE user_id=$1`, who(r).ID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM chat.rooms WHERE id IN(SELECT room_id FROM chat.members WHERE user_id=$1)`, who(r).ID); err != nil {
+	if _, err = tx.Exec(r.Context(), `UPDATE identity.accounts SET ghost=true WHERE id=$1`, who(r).ID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM identity.accounts WHERE id=$1`, who(r).ID); err != nil {
+	if _, err = tx.Exec(r.Context(), `INSERT INTO identity.deletion_requests(user_id) VALUES($1) ON CONFLICT(user_id) DO NOTHING`, who(r).ID); err != nil {
+		return err
+	}
+	var requested, purge time.Time
+	if err = tx.QueryRow(r.Context(), `SELECT requested_at,purge_after FROM identity.deletion_requests WHERE user_id=$1`, who(r).ID).Scan(&requested, &purge); err != nil {
 		return err
 	}
 	if err = tx.Commit(r.Context()); err != nil {
+		return err
+	}
+	write(w, 202, map[string]any{"requested_at": requested, "purge_after": purge})
+	return nil
+}
+
+func (s *Server) deletionStatus(w http.ResponseWriter, r *http.Request) error {
+	var requested, purge time.Time
+	err := s.DB.QueryRow(r.Context(), `SELECT requested_at,purge_after FROM identity.deletion_requests WHERE user_id=$1`, who(r).ID).Scan(&requested, &purge)
+	if err == pgx.ErrNoRows {
+		write(w, 200, map[string]any{"pending": false})
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	write(w, 200, map[string]any{"pending": true, "requested_at": requested, "purge_after": purge})
+	return nil
+}
+
+func (s *Server) cancelDeletion(w http.ResponseWriter, r *http.Request) error {
+	tag, err := s.DB.Exec(r.Context(), `DELETE FROM identity.deletion_requests WHERE user_id=$1`, who(r).ID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fail(404, "no_pending_deletion")
+	}
+	if _, err = s.DB.Exec(r.Context(), `UPDATE identity.accounts SET ghost=false WHERE id=$1`, who(r).ID); err != nil {
 		return err
 	}
 	write(w, 204, nil)
