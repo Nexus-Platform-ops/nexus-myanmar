@@ -96,6 +96,27 @@ func TestPrivilegeBoundaries(t *testing.T) {
 		denied(t, execErr(c, ctx, "INSERT INTO social.posts(author,body,township,audience) VALUES(gen_random_uuid(),'x','k','PUBLIC')"), "moderator post write")
 	})
 
+	t.Run("analytics_aggregate_only", func(t *testing.T) {
+		c := connectRole(t, roleDSN(t, "TEST_ANALYTICS_DATABASE_URL", "nexus_analytics", "nexus_analytics_ci_only_pw3"))
+		for _, q := range []string{
+			"SELECT township,day,posts FROM analytics.post_volume",
+			"SELECT township,day,events FROM analytics.event_volume",
+			"SELECT day,mode,messages FROM analytics.message_volume",
+			"SELECT day,category,reports FROM analytics.report_volume",
+			"SELECT day,sessions FROM analytics.session_volume",
+		} {
+			if _, err := c.Exec(ctx, q); err != nil {
+				t.Fatalf("analytics view read %q: %v", q, err)
+			}
+		}
+		denied(t, execErr(c, ctx, "SELECT body FROM social.posts LIMIT 1"), "analytics post body read")
+		denied(t, execErr(c, ctx, "SELECT phone_hash FROM identity.accounts LIMIT 1"), "analytics identity read")
+		denied(t, execErr(c, ctx, "SELECT body_cipher FROM chat.messages LIMIT 1"), "analytics message read")
+		denied(t, execErr(c, ctx, "SELECT target_id FROM safety.reports LIMIT 1"), "analytics report target read")
+		denied(t, execErr(c, ctx, "SELECT nickname FROM dating.dating_profiles LIMIT 1"), "analytics dating read")
+		denied(t, execErr(c, ctx, "CREATE TABLE analytics.probe(id int)"), "analytics DDL")
+	})
+
 	t.Run("janitor_scoped", func(t *testing.T) {
 		c := connectRole(t, roleDSN(t, "TEST_JANITOR_DATABASE_URL", "nexus_janitor", "nexus_jan_ci_only_pw2"))
 		if _, err := c.Exec(ctx, "DELETE FROM chat.tombstones WHERE expired_at<now() AND false"); err != nil {
@@ -114,6 +135,8 @@ func TestPrivilegeBoundaries(t *testing.T) {
 		denied(t, execErr(c, ctx, "SELECT body_cipher FROM chat.messages LIMIT 1"), "janitor message read")
 		denied(t, execErr(c, ctx, "SELECT fix_cipher FROM private.user_locations LIMIT 1"), "janitor exact-fix read")
 		denied(t, execErr(c, ctx, "SELECT id FROM identity.accounts LIMIT 1"), "janitor identity read")
+		denied(t, execErr(c, ctx, "SELECT contact_id FROM safety.trusted_contacts LIMIT 1"), "janitor trusted-contact read")
+		denied(t, execErr(c, ctx, "SELECT place_label FROM safety.checkins LIMIT 1"), "janitor checkin read")
 		denied(t, execErr(c, ctx, "SELECT phone_cipher FROM identity.otp LIMIT 1"), "janitor otp cipher read")
 		denied(t, execErr(c, ctx, "INSERT INTO identity.otp(phone_hash,phone_cipher,code_hash,expires_at) VALUES('x','x','x',now())"), "janitor otp write")
 	})

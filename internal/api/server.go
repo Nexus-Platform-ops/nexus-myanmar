@@ -179,7 +179,7 @@ func (s *Server) routes() {
 			return fail(503, "dependency_unavailable")
 		}
 		var v int
-		if s.DB.QueryRow(ctx, "SELECT version FROM identity.schema_version").Scan(&v) != nil || v < 10 {
+		if s.DB.QueryRow(ctx, "SELECT version FROM identity.schema_version").Scan(&v) != nil || v < 11 {
 			return fail(503, "schema_mismatch")
 		}
 		write(w, 200, map[string]any{"status": "ready", "release": "development-baseline"})

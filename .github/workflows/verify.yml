@@ -22,9 +22,11 @@ jobs:
     env:
       DATABASE_URL: postgres://nexus:nexus_local_only@localhost:5432/nexus_test?sslmode=disable
       TEST_APP_DATABASE_URL: postgres://nexus_app:nexus_app_ci_only_pw@localhost:5432/nexus_test?sslmode=disable
+      TEST_ANALYTICS_DATABASE_URL: postgres://nexus_analytics:nexus_analytics_ci_only_pw3@localhost:5432/nexus_test?sslmode=disable
       NEXUS_APP_DB_PASSWORD: nexus_app_ci_only_pw
       NEXUS_MODERATOR_DB_PASSWORD: nexus_mod_ci_only_pw1
       NEXUS_JANITOR_DB_PASSWORD: nexus_jan_ci_only_pw2
+      NEXUS_ANALYTICS_DB_PASSWORD: nexus_analytics_ci_only_pw3
       DATA_KEY: nexus_ci_data_key_0123456789abcdefghij
       NEXUS_INTEGRATION: '1'
     steps:

@@ -32,6 +32,7 @@ var steps = []struct {
 	{8, "db/migrations/008_realtime_outbox.sql"},
 	{9, "db/migrations/009_meet_safe.sql"},
 	{10, "db/migrations/010_dsr_purge.sql"},
+	{11, "db/migrations/011_analytics.sql"},
 }
 
 // operationalLogin roles receive passwords from env after DDL applies; they are
@@ -40,6 +41,7 @@ var operationalLogin = map[string]string{
 	"NEXUS_APP_DB_PASSWORD":       "nexus_app",
 	"NEXUS_MODERATOR_DB_PASSWORD": "nexus_moderator",
 	"NEXUS_JANITOR_DB_PASSWORD":   "nexus_janitor",
+	"NEXUS_ANALYTICS_DB_PASSWORD": "nexus_analytics",
 }
 
 func run() error {

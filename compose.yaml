@@ -33,6 +33,7 @@ services:
       NEXUS_APP_DB_PASSWORD: ${NEXUS_APP_DB_PASSWORD:?set in .env}
       NEXUS_MODERATOR_DB_PASSWORD: ${NEXUS_MODERATOR_DB_PASSWORD:?set in .env}
       NEXUS_JANITOR_DB_PASSWORD: ${NEXUS_JANITOR_DB_PASSWORD:?set in .env}
+      NEXUS_ANALYTICS_DB_PASSWORD: ${NEXUS_ANALYTICS_DB_PASSWORD:?set in .env}
     entrypoint: ["/app/migrate"]
     depends_on:
       postgres: {condition: service_healthy}
