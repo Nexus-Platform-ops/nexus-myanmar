@@ -17,7 +17,9 @@ Date: 2026-11-05. Scope: production pre-condition — `chat.messages.body` was s
 
 Local scratch Postgres 16 (data-migration path, which a fresh CI database cannot exercise): migration applied with the key GUC — one legacy plaintext row became a 79-byte ciphertext containing no plaintext bytes and decrypted back to `legacy secret`; `body` column removed, `body_cipher bytea NOT NULL`; running 005 without the GUC failed closed (`unrecognized configuration parameter "nexus.data_key"`) and rolled back. `gofmt` clean, `go vet` clean, `go build ./...` ok.
 
-CI pending: backend lane re-runs migrate (v1–5) and the full integration suite (round-trip through the API plus at-rest assertion) with the race detector.
+CI closure: GitHub Actions "Verify Nexus" run 42174109707 (commit 2980171) — backend, mobile and graphql lanes all `success`. Backend ran migrate v1–5 with the `DATA_KEY` GUC (`Applied schema version 1..5`, `Schema at version 5`), the race-detector integration suite (`ok nexus/internal/api 1.701s`) including the message round-trip plus at-rest ciphertext assertion and the privilege-boundary denials on `body_cipher`.
+
+Status: **CLOSED (2026-11-05)** — evidence tier = CI run 42174109707.
 
 ## Honest boundary
 
