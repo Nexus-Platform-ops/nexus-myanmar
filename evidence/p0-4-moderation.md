@@ -32,12 +32,12 @@ Date: 2026-11-05. Scope: beta precondition — moderation decisions were anonymo
 
 Local (this machine, no Docker/PostGIS): `gofmt -l cmd internal` clean, `go vet ./...` clean, `go build ./...` clean, `go test -count=1 ./...` ok (integration tests skipped without `NEXUS_INTEGRATION=1`). No local live-Postgres run of 006 was performed; CI is the evidence tier.
 
-CI pending: backend lane applies migrate v1–6, then runs with the race detector:
-- `TestModerationIntegration` (new): reviewer creation audited, wrong password and inactive reviewer rejected, decision attributed to reviewer_id, self-review rejected, overturn restores LIVE and records reviewer, closed appeal rejected, rotation cap enforced and reset.
-- `TestIntegration` new subtests: `report_daily_cap`, `coordinated_report_flag`, `appeal_workflow` (ownership, duplicate, validation, list).
+CI closure: GitHub Actions "Verify Nexus" run 42175902801 (commit 2569230) — backend, mobile and graphql lanes all `success`. Backend applied the full ladder (`Applied schema version 1..6`, `Schema at version 6`) and the race-detector suite ran the live integration path (`ok nexus/internal/api 7.113s` with `NEXUS_INTEGRATION=1`, not a skip), which includes:
+- `moderation_named_reviewer_and_appeals`: reviewer creation audited, wrong password and inactive reviewer rejected, decision attributed to reviewer_id, self-review rejected, overturn restores LIVE and records reviewer, closed appeal rejected, rotation cap enforced and reset.
+- `report_daily_cap`, `coordinated_report_flag`, `appeal_workflow`: ownership, duplicate, validation, list and 5-reporter flag assertions.
 - `TestPrivilegeBoundaries`: app cannot read reviewers; moderator can read reviewers/update the counter but cannot create reviewers or write password hashes.
 
-Gate: all lanes green before P0-4 is marked CLOSED.
+Status: **CLOSED (2026-11-05)** — evidence tier = CI run 42175902801. Closure needs user ratification per the stage-gate rule.
 
 ## Honest boundary
 
