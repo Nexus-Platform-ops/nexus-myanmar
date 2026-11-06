@@ -243,12 +243,16 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) error {
 		"dating_profile": `SELECT to_json(p) FROM dating.dating_profiles p WHERE user_id=$1`,
 		"posts":          `SELECT to_json(p) FROM social.posts p WHERE author=$1`,
 		"comments":       `SELECT to_json(c) FROM social.comments c WHERE author=$1`,
-		"messages":       `SELECT json_build_object('id',id,'room_id',room_id,'text',body,'created_at',created_at) FROM chat.messages WHERE sender=$1 AND mode='NORMAL'`,
+		"messages":       `SELECT json_build_object('id',id,'room_id',room_id,'text',pgp_sym_decrypt(body_cipher,$2),'created_at',created_at) FROM chat.messages WHERE sender=$1 AND mode='NORMAL'`,
 		"reactions":      `SELECT to_json(v) FROM social.reactions v WHERE user_id=$1`,
 	}
 	out := map[string]any{}
 	for name, q := range specs {
-		rows, err := s.DB.Query(r.Context(), q, who(r).ID)
+		args := []any{who(r).ID}
+		if name == "messages" {
+			args = append(args, s.Cfg.DataKey)
+		}
+		rows, err := s.DB.Query(r.Context(), q, args...)
 		if err != nil {
 			return err
 		}

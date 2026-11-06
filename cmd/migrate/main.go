@@ -26,6 +26,7 @@ var steps = []struct {
 	{2, "db/migrations/002_privileges.sql"},
 	{3, "db/migrations/003_whisper_reads.sql"},
 	{4, "db/migrations/004_grants_fix.sql"},
+	{5, "db/migrations/005_encrypt_chat.sql"},
 }
 
 // operationalLogin roles receive passwords from env after DDL applies; they are
@@ -64,6 +65,17 @@ func run() error {
 		b, e := os.ReadFile(s.file)
 		if e != nil {
 			return e
+		}
+		if s.version == 5 {
+			// 005 encrypts existing bodies in place; it must run under the same
+			// key the API reads with, and must fail closed without one.
+			key := os.Getenv("DATA_KEY")
+			if len(key) < 32 {
+				return fmt.Errorf("DATA_KEY (>=32 bytes) required for schema version 5 (encrypting chat bodies)")
+			}
+			if _, e = c.Exec(ctx, "SELECT set_config('nexus.data_key',$1,false)", key); e != nil {
+				return e
+			}
 		}
 		if _, e = c.Exec(ctx, string(b)); e != nil {
 			return fmt.Errorf("step %d: %w", s.version, e)

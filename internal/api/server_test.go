@@ -506,6 +506,17 @@ func TestIntegration(t *testing.T) {
 		d := f.expect(1, "POST", "/v1/chats", DataMap{"members": []string{f.users[2]}}, 201)
 		rid := d["id"].(string)
 		msg := f.expect(1, "POST", "/v1/chats/"+rid+"/messages", DataMap{"text": "Normal history", "mode": "NORMAL", "client_id": uuid.NewString()}, 201)
+		var cipher []byte
+		if e := f.boot.QueryRow(context.Background(), "SELECT body_cipher FROM chat.messages WHERE id=$1", msg["id"]).Scan(&cipher); e != nil {
+			t.Fatal(e)
+		}
+		if bytes.Contains(cipher, []byte("Normal history")) {
+			t.Fatal("plaintext chat body stored at rest")
+		}
+		var plain string
+		if e := f.boot.QueryRow(context.Background(), "SELECT pgp_sym_decrypt(body_cipher,$2) FROM chat.messages WHERE id=$1", msg["id"], cfg.DataKey).Scan(&plain); e != nil || plain != "Normal history" {
+			t.Fatalf("cipher round-trip: %q %v", plain, e)
+		}
 		d = f.expect(2, "POST", "/v1/chats/"+rid+"/read", DataMap{"through_seq": msg["seq"]}, 200)
 		if d["wiped"] != float64(0) {
 			t.Fatal("normal message deleted")

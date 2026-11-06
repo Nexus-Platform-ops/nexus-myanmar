@@ -177,7 +177,7 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) error {
 			return fail(400, "invalid_sequence")
 		}
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('id',id,'sender',sender,'seq',seq,'text',body,'mode',mode,'created_at',created_at) FROM chat.messages WHERE room_id=$1 AND seq<$2 AND NOT (mode='WHISPER' AND EXISTS(SELECT 1 FROM chat.whisper_reads w WHERE w.message_id=chat.messages.id AND w.reader=$3)) ORDER BY seq DESC LIMIT 50`, id, before, who(r).ID)
+	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('id',id,'sender',sender,'seq',seq,'text',pgp_sym_decrypt(body_cipher,$4),'mode',mode,'created_at',created_at) FROM chat.messages WHERE room_id=$1 AND seq<$2 AND NOT (mode='WHISPER' AND EXISTS(SELECT 1 FROM chat.whisper_reads w WHERE w.message_id=chat.messages.id AND w.reader=$3)) ORDER BY seq DESC LIMIT 50`, id, before, who(r).ID, s.Cfg.DataKey)
 	if err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	mid = uuid.NewString()
-	err = tx.QueryRow(r.Context(), `INSERT INTO chat.messages(id,room_id,sender,body,mode,client_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING seq`, mid, id, who(r).ID, b.Text, b.Mode, b.ClientID).Scan(&seq)
+	err = tx.QueryRow(r.Context(), `INSERT INTO chat.messages(id,room_id,sender,body_cipher,mode,client_id) VALUES($1,$2,$3,pgp_sym_encrypt($4,$5),$6,$7) RETURNING seq`, mid, id, who(r).ID, b.Text, s.Cfg.DataKey, b.Mode, b.ClientID).Scan(&seq)
 	if err != nil {
 		return err
 	}

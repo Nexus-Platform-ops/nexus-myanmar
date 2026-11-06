@@ -81,7 +81,7 @@ func TestPrivilegeBoundaries(t *testing.T) {
 		denied(t, execErr(c, ctx, "SELECT id FROM dating.dating_profiles LIMIT 1"), "moderator dating read")
 		denied(t, execErr(c, ctx, "SELECT user_id FROM private.user_locations LIMIT 1"), "moderator location read")
 		denied(t, execErr(c, ctx, "SELECT id FROM identity.accounts LIMIT 1"), "moderator identity read")
-		denied(t, execErr(c, ctx, "SELECT body FROM chat.messages LIMIT 1"), "moderator message read")
+		denied(t, execErr(c, ctx, "SELECT body_cipher FROM chat.messages LIMIT 1"), "moderator message read")
 		denied(t, execErr(c, ctx, "DELETE FROM social.posts WHERE false"), "moderator post delete")
 		denied(t, execErr(c, ctx, "INSERT INTO social.posts(author,body,township,audience) VALUES(gen_random_uuid(),'x','k','PUBLIC')"), "moderator post write")
 	})
@@ -91,7 +91,7 @@ func TestPrivilegeBoundaries(t *testing.T) {
 		if _, err := c.Exec(ctx, "DELETE FROM chat.tombstones WHERE expired_at<now() AND false"); err != nil {
 			t.Fatalf("janitor tombstone delete: %v", err)
 		}
-		denied(t, execErr(c, ctx, "SELECT body FROM chat.messages LIMIT 1"), "janitor message read")
+		denied(t, execErr(c, ctx, "SELECT body_cipher FROM chat.messages LIMIT 1"), "janitor message read")
 		denied(t, execErr(c, ctx, "SELECT fix_cipher FROM private.user_locations LIMIT 1"), "janitor exact-fix read")
 		denied(t, execErr(c, ctx, "SELECT id FROM identity.accounts LIMIT 1"), "janitor identity read")
 		denied(t, execErr(c, ctx, "SELECT phone_cipher FROM identity.otp LIMIT 1"), "janitor otp cipher read")
