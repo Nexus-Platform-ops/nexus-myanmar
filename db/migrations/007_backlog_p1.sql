@@ -24,7 +24,7 @@ CREATE INDEX ON social.recent_searches(user_id,searched_at DESC);
 ALTER TABLE social.notification_prefs OWNER TO nexus_owner;
 ALTER TABLE social.recent_searches OWNER TO nexus_owner;
 
-GRANT SELECT, INSERT, UPDATE ON social.notification_prefs TO nexus_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON social.notification_prefs TO nexus_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON social.recent_searches TO nexus_app;
 
 -- Janitor sweep: the expiry predicates and tombstone metadata only. Message
