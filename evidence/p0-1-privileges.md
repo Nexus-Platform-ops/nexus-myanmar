@@ -25,6 +25,24 @@ CI closure (designated evidence tier — GitHub Actions run 42101894966 on commi
 
 **Status: CLOSED (2026-11-05).**
 
+### Grant regression check — S2 P1 (2026-11-06)
+
+CI run 42184447461 (commit 3bf55c0, all lanes `success`) applied schema version 7
+on top of the v4 grant shape. `007_backlog_p1.sql` adds only additive grants —
+`nexus_app` DML on `social.notification_prefs`/`social.recent_searches`,
+`nexus_janitor` column-scoped SELECT + DELETE on `chat.messages`/`identity.idempotency`/
+`social.recent_searches` and INSERT on `chat.tombstones` — and does not widen any
+existing boundary. `TestPrivilegeBoundaries` (race detector, live Postgres, same run)
+kept every denial assertion green, including the new ones: janitor can run the
+whisper sweep, idempotency and recents pruning, but `SELECT query FROM
+social.recent_searches` is still denied with SQLSTATE 42501 (janitor may only read
+`searched_at` for the sweep predicate).
+
+The prior run 42178920179 (commit c1e9598) caught one missing grant —
+`permission denied for table notification_prefs (SQLSTATE 42501)` on the app-role test
+cleanup — which is the same class of bug 004 fixed; corrected in 3bf55c0 by
+granting DELETE to `nexus_app` on that table only.
+
 ## Honest boundary
 
 This closes physical isolation for operational roles and removes DDL/owner power from application traffic. It does NOT physically split social↔dating inside the API tier (monolith cross-schema joins require broad `nexus_app` DML); that remains query-layer + privacy-test enforced and is deferred to service extraction. Recorded in `docs/READINESS.md` gap 4.

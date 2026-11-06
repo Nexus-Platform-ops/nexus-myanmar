@@ -39,6 +39,17 @@ CI closure: GitHub Actions "Verify Nexus" run 42175902801 (commit 2569230) — b
 
 Status: **CLOSED (2026-11-05)** — evidence tier = CI run 42175902801. Closure needs user ratification per the stage-gate rule.
 
+### Regression check — S2 P1 (2026-11-06)
+
+CI run 42184447461 (commit 3bf55c0, all three lanes `success`, schema version 7)
+re-ran the moderation suite unchanged and green. The P1 work touches two paths this
+log owns: `POST /v1/safety/report` now accepts an `Idempotency-Key`, and the report
+handler is registered through `protectedIdempotent`, so `idempotency_key_replay`
+asserts that a replayed report returns the same `case_id` with exactly one
+`safety.reports` row (no double-count toward the 5/day cap, no second brigade
+increment). The daily-cap, coordinated-report and appeal subtests were part of the
+same run. Moderator/janitor boundaries were unaffected by 007.
+
 ## Honest boundary
 
 - A brigade flag records suspicion only. The first HIGH report still auto-holds exposure, so coordinated reporting can cause a temporary hold until a reviewer overturns it; staffed response remains required.

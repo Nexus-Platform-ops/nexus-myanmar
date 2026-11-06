@@ -11,11 +11,11 @@ refers to it.
 
 | ID | Item | Source gap | Status |
 |---|---|---|---|
-| P1-1 | Whisper 24h time-based expiry, read-path hiding and janitor sweep with tombstone | READINESS 6 ("no time-based Whisper expiry") | implemented, CI pending |
-| P1-2 | `Idempotency-Key` replay for create-post, share and report | READINESS 11 | implemented, CI pending |
-| P1-3 | Symmetric friend graph API (`GET/POST/DELETE /v1/friends`) with block/ghost gates | READINESS G "Follow graph UX" | implemented, CI pending |
-| P1-4 | Notification mute preferences; SAFETY cannot be muted | READINESS G "category mute settings" | implemented, CI pending |
-| P1-5 | Search keyset pagination per type + recent-search API | READINESS C "cursor search, local recents UX" | implemented, CI pending |
+| P1-1 | Whisper 24h time-based expiry, read-path hiding and janitor sweep with tombstone | READINESS 6 ("no time-based Whisper expiry") | CLOSED — CI 42184447461 (3bf55c0) |
+| P1-2 | `Idempotency-Key` replay for create-post, share and report | READINESS 11 | CLOSED — CI 42184447461 (3bf55c0) |
+| P1-3 | Symmetric friend graph API (`GET/POST/DELETE /v1/friends`) with block/ghost gates | READINESS G "Follow graph UX" | CLOSED — CI 42184447461 (3bf55c0) |
+| P1-4 | Notification mute preferences; SAFETY cannot be muted | READINESS G "category mute settings" | CLOSED — CI 42184447461 (3bf55c0) |
+| P1-5 | Search keyset pagination per type + recent-search API | READINESS C "cursor search, local recents UX" | CLOSED — CI 42184447461 (3bf55c0) |
 
 ## P2 — larger or infrastructure-dependent work
 
@@ -31,3 +31,7 @@ refers to it.
 P2 items are not claimed complete until each has its own evidence entry. Native
 builds, SMS vendor integration, KMS/attestation and independent pentest remain
 outside this queue (Stage 2 platform squads / Stage 4 external gate).
+
+P1 closure evidence: `evidence/p1-backlog.md` (CI run 42184447461, commit 3bf55c0,
+schema version 7). P2 status is tracked in the table above and in each item's
+evidence entry as it lands.
