@@ -37,11 +37,16 @@ jobs:
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./... && go test -race -count=1 -coverprofile=coverage.out ./...
       - name: Coverage gate (API package >= 80%)
+        # Reuses coverage.out from the race step. Re-running the integration suite
+        # here duplicated DB/Redis setup and failed in CI run 42198661290.
         run: |
-          go test -count=1 -coverprofile=coverage-api.out ./internal/api
-          go tool cover -func=coverage-api.out | tail -1
-          pct=$(go tool cover -func=coverage-api.out | tail -1 | awk '{print $3}' | tr -d '%')
-          awk -v p="$pct" 'BEGIN { if (p + 0 < 80) { printf "coverage %s%% < 80%%\n", p; exit 1 } }'
+          awk -v min=80 '
+            NR > 1 && $1 ~ /^nexus\/internal\/api\// { t += $2; if ($3 > 0) h += $2 }
+            END {
+              pct = (t > 0) ? 100 * h / t : 0
+              printf "API statement coverage %.2f%% (%d/%d), gate %.0f%%\n", pct, h, t, min
+              if (pct < min) { printf "::error::API coverage %.2f%% < %.0f%%\n", pct, min; exit 1 }
+            }' coverage.out
       - run: go build ./cmd/...
       - run: python3 scripts/guardrails.py
   mobile:
