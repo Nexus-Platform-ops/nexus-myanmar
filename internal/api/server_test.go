@@ -149,6 +149,50 @@ func TestDecodeStrict(t *testing.T) {
 	}
 }
 
+func TestWrapInternalError(t *testing.T) {
+	s := &Server{}
+	h := s.wrap(func(http.ResponseWriter, *http.Request) error { return errors.New("boom") })
+	w := httptest.NewRecorder()
+	h(w, httptest.NewRequest("GET", "/", nil))
+	if w.Code != 500 || !strings.Contains(w.Body.String(), "internal_error") {
+		t.Fatalf("internal error: %d %s", w.Code, w.Body.String())
+	}
+}
+func TestAppealableKinds(t *testing.T) {
+	for action, want := range map[string]string{
+		"MODERATE_post_REMOVED":    "post",
+		"MODERATE_comment_REMOVED": "comment",
+		"MODERATE_event_REMOVED":   "event",
+	} {
+		if kind, ok := appealable(action); !ok || kind != want {
+			t.Fatalf("%s: %q %v", action, kind, ok)
+		}
+	}
+	for _, action := range []string{"", "MODERATE_post_LIVE", "MODERATE_group_REMOVED", "post_REMOVED", "MODERATE_post_REMOVED_X"} {
+		if _, ok := appealable(action); ok {
+			t.Fatalf("accepted %q", action)
+		}
+	}
+}
+func TestHMACEqualRejectsLengthMismatch(t *testing.T) {
+	if hmacEqual("abc", "abcd") || !hmacEqual("abc", "abc") {
+		t.Fatal("hmac comparison")
+	}
+}
+func TestItoaRadius(t *testing.T) {
+	for n, want := range map[int]string{1: "1", 3: "3", 5: "5", 10: "10", 0: "", 2: ""} {
+		if itoa(n) != want {
+			t.Fatalf("itoa(%d)=%q want %q", n, itoa(n), want)
+		}
+	}
+}
+func TestCaptureWriterDefaultsToOK(t *testing.T) {
+	cw := &captureWriter{header: http.Header{}}
+	if _, err := cw.Write([]byte("x")); err != nil || cw.status != 200 || cw.body.String() != "x" {
+		t.Fatalf("capture writer: %d %q %v", cw.status, cw.body.String(), err)
+	}
+}
+
 func TestNewRejectsInvalidConfig(t *testing.T) {
 	if _, err := New(context.Background(), Config{}); err == nil {
 		t.Fatal("invalid config accepted")
@@ -225,6 +269,31 @@ func (f *fixture) reqHeaders(i int, method, path string, body any, headers map[s
 	return res.StatusCode, out
 }
 
+func (f *fixture) raw(i int, method, path, body string) (int, DataMap) {
+	f.t.Helper()
+	r, e := http.NewRequest(method, f.ts.URL+path, strings.NewReader(body))
+	if e != nil {
+		f.t.Fatal(e)
+	}
+	if i >= 0 {
+		r.Header.Set("Authorization", "Bearer "+f.tokens[i])
+	}
+	r.Header.Set("Content-Type", "application/json")
+	res, e := http.DefaultClient.Do(r)
+	if e != nil {
+		f.t.Fatal(e)
+	}
+	defer res.Body.Close()
+	out := DataMap{}
+	raw, _ := io.ReadAll(res.Body)
+	if len(raw) > 0 {
+		if e = json.Unmarshal(raw, &out); e != nil {
+			f.t.Fatalf("non-json response %d: %s", res.StatusCode, raw)
+		}
+	}
+	return res.StatusCode, out
+}
+
 type DataMap map[string]any
 
 func (f *fixture) expect(i int, method, path string, body any, want int) DataMap {
@@ -245,6 +314,24 @@ func (f *fixture) exec(q string, args ...any) {
 func (f *fixture) bootExec(q string, args ...any) {
 	f.t.Helper()
 	if _, err := f.boot.Exec(context.Background(), q, args...); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// resetIPLimit clears the global per-IP request budget. Every fixture request
+// comes from 127.0.0.1, so request-heavy sweeps must not inherit the count
+// left by earlier subtests.
+func (f *fixture) resetIPLimit() {
+	f.t.Helper()
+	ctx := context.Background()
+	keys, err := f.s.Redis.Keys(ctx, "limit:ip:*").Result()
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if len(keys) == 0 {
+		return
+	}
+	if err = f.s.Redis.Del(ctx, keys...).Err(); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -1459,5 +1546,160 @@ func TestIntegration(t *testing.T) {
 		if err = moderation.SetReviewerActive(ctx, f.boot, nameB, true); err != nil {
 			t.Fatal(err)
 		}
+	})
+	run("profileless_and_dating_edges", func(t *testing.T) {
+		f.resetIPLimit()
+		// An account with neither social nor dating profile exercises the
+		// "profile not created" branches without disturbing the shared fixtures.
+		id, sid := uuid.NewString(), uuid.NewString()
+		f.exec(`INSERT INTO identity.accounts(id,phone_hash,phone_cipher,dob,phone_verified,tier) VALUES($1,$2,pgp_sym_encrypt('private',$3),'1997-01-01',true,1)`, id, "profileless"+uuid.NewString()[:8], cfg.DataKey)
+		f.exec(`INSERT INTO identity.sessions(id,user_id,refresh_hash,device_label,expires_at) VALUES($1,$2,$3,'probe',now()+interval '1 day')`, sid, id, randomToken())
+		tok, err := s.tokens(id, sid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.tokens = append(f.tokens, tok)
+		i := len(f.tokens) - 1
+		defer f.exec("DELETE FROM identity.accounts WHERE id=$1", id)
+		f.expect(i, "GET", "/v1/profile", nil, 404)
+		f.expect(i, "GET", "/v1/dating-profile/preview", nil, 404)
+		f.expect(i, "PUT", "/v1/dating-profile", DataMap{"nickname": "NoProfile", "gender": "unspecified", "age_min": 18, "age_max": 99, "radius_km": 5}, 409)
+		f.expect(i, "POST", "/v1/posts", DataMap{"body": "x", "audience": "PUBLIC", "township": "kamayut"}, 409)
+
+		// Omitted arrays are normalised, and every generated radius is accepted.
+		f.expect(0, "PUT", "/v1/dating-profile", DataMap{"nickname": "Edge Nick", "gender": "unspecified", "age_min": 18, "age_max": 99, "radius_km": 1}, 200)
+		f.expect(0, "PUT", "/v1/dating-profile", DataMap{"nickname": "Edge Nick", "gender": "unspecified", "age_min": 18, "age_max": 99, "radius_km": 10}, 200)
+		f.expect(0, "PUT", "/v1/dating-profile", DataMap{"nickname": "Edge Nick", "gender": "unspecified", "age_min": 18, "age_max": 99, "radius_km": 5, "prompts": []string{strings.Repeat("p", 201)}}, 400)
+		f.expect(0, "PUT", "/v1/dating-profile", DataMap{"nickname": "Edge Nick", "gender": "unspecified", "age_min": 18, "age_max": 99, "radius_km": 5}, 200)
+	})
+	run("rejects_malformed_json_everywhere", func(t *testing.T) {
+		f.resetIPLimit()
+		sweep := uuid.NewString()
+		f.exec("INSERT INTO chat.rooms(id,kind) VALUES($1,'SOCIAL')", sweep)
+		f.exec("INSERT INTO chat.members(room_id,user_id) VALUES($1,$2),($1,$3)", sweep, f.users[0], f.users[1])
+		defer f.exec("DELETE FROM chat.rooms WHERE id=$1", sweep)
+		bad := `{"broken":`
+		cases := []struct {
+			i    int
+			verb string
+			path string
+		}{
+			{-1, "POST", "/v1/auth/otp/request"},
+			{-1, "POST", "/v1/auth/otp/verify"},
+			{-1, "POST", "/v1/auth/refresh"},
+			{0, "PUT", "/v1/profile"},
+			{0, "PUT", "/v1/dating-profile"},
+			{0, "POST", "/v1/location"},
+			{0, "POST", "/v1/posts"},
+			{0, "POST", "/v1/posts/" + post + "/reactions"},
+			{0, "POST", "/v1/posts/" + post + "/bookmark"},
+			{0, "POST", "/v1/posts/" + post + "/comments"},
+			{0, "POST", "/v1/posts/" + post + "/shares"},
+			{1, "POST", "/v1/events"},
+			{0, "POST", "/v1/events/" + uuid.NewString() + "/rsvp"},
+			{0, "POST", "/v1/groups"},
+			{0, "POST", "/v1/chats"},
+			{0, "POST", "/v1/chats/" + sweep + "/messages"},
+			{0, "POST", "/v1/chats/" + sweep + "/read"},
+			{0, "PUT", "/v1/notifications/preferences"},
+			{0, "POST", "/v1/safety/report"},
+			{0, "POST", "/v1/safety/block"},
+			{0, "POST", "/v1/safety/ghost"},
+			{0, "POST", "/v1/safety/trusted-contacts"},
+			{0, "POST", "/v1/safety/checkins"},
+			{0, "POST", "/v1/safety/capture-alert"},
+			{0, "POST", "/v1/safety/appeals"},
+			{0, "POST", "/v1/friends"},
+			{0, "POST", "/v1/actions/swipe"},
+			{0, "DELETE", "/v1/account"},
+		}
+		for _, c := range cases {
+			if status, out := f.raw(c.i, c.verb, c.path, bad); status != 400 || out["error"] != "invalid_json" {
+				t.Fatalf("%s %s: %d %v", c.verb, c.path, status, out)
+			}
+		}
+		f.expect(-1, "POST", "/v1/auth/otp/request", DataMap{"phone": "091234"}, 400)
+		f.expect(-1, "POST", "/v1/auth/otp/verify", DataMap{"challenge_id": "bad", "code": "123456", "dob": "1990-01-01", "device": "probe"}, 400)
+	})
+	run("write_gate_hides_ghosted_accounts", func(t *testing.T) {
+		f.resetIPLimit()
+		sweep := uuid.NewString()
+		f.exec("INSERT INTO chat.rooms(id,kind) VALUES($1,'SOCIAL')", sweep)
+		f.exec("INSERT INTO chat.members(room_id,user_id) VALUES($1,$2),($1,$3)", sweep, f.users[0], f.users[1])
+		defer f.exec("DELETE FROM chat.rooms WHERE id=$1", sweep)
+		f.exec("UPDATE identity.accounts SET ghost=true WHERE id=$1", f.users[0])
+		defer f.exec("UPDATE identity.accounts SET ghost=false WHERE id=$1", f.users[0])
+		cases := []struct {
+			method, path string
+			body         any
+		}{
+			{"PUT", "/v1/dating-profile", DataMap{}},
+			{"POST", "/v1/location", DataMap{}},
+			{"POST", "/v1/actions/swipe", DataMap{}},
+			{"POST", "/v1/posts", DataMap{"body": "x", "audience": "PUBLIC", "township": "kamayut"}},
+			{"POST", "/v1/posts/" + post + "/reactions", DataMap{"type": "LIKE"}},
+			{"POST", "/v1/posts/" + post + "/comments", DataMap{"body": "x"}},
+			{"POST", "/v1/posts/" + post + "/shares", DataMap{"mode": "COPY_LINK"}},
+			{"POST", "/v1/events", DataMap{}},
+			{"POST", "/v1/events/" + uuid.NewString() + "/rsvp", DataMap{"status": "ATTEND"}},
+			{"POST", "/v1/groups", DataMap{}},
+			{"POST", "/v1/groups/" + uuid.NewString() + "/join", DataMap{}},
+			{"POST", "/v1/chats", DataMap{}},
+			{"POST", "/v1/chats/" + sweep + "/messages", DataMap{"text": "x", "mode": "NORMAL", "client_id": uuid.NewString()}},
+			{"POST", "/v1/safety/trusted-contacts", DataMap{}},
+			{"POST", "/v1/safety/checkins", DataMap{}},
+			{"POST", "/v1/friends", DataMap{}},
+		}
+		for _, c := range cases {
+			f.expect(0, c.method, c.path, c.body, 403)
+		}
+	})
+	run("room_and_geo_authorization_edges", func(t *testing.T) {
+		f.resetIPLimit()
+		for _, band := range []string{"1km", "5km", "10km"} {
+			f.expect(0, "GET", "/v1/lookaround?band="+band, nil, 200)
+		}
+		// A single-member room is not a conversation.
+		lone := uuid.NewString()
+		f.exec("INSERT INTO chat.rooms(id,kind) VALUES($1,'SOCIAL')", lone)
+		f.exec("INSERT INTO chat.members(room_id,user_id) VALUES($1,$2)", lone, f.users[0])
+		f.expect(0, "GET", "/v1/chats/"+lone+"/messages", nil, 404)
+		f.exec("DELETE FROM chat.rooms WHERE id=$1", lone)
+		// A ghosted peer locks an existing room.
+		f.exec("UPDATE identity.accounts SET ghost=true WHERE id=$1", f.users[6])
+		f.expect(5, "GET", "/v1/chats/"+room+"/messages", nil, 403)
+		f.exec("UPDATE identity.accounts SET ghost=false WHERE id=$1", f.users[6])
+		// A blocked peer hides the room.
+		f.exec("INSERT INTO safety.blocks(user_id,target_id) VALUES($1,$2)", f.users[5], f.users[6])
+		f.expect(5, "GET", "/v1/chats/"+room+"/messages", nil, 404)
+		f.exec("DELETE FROM safety.blocks WHERE user_id=$1 AND target_id=$2", f.users[5], f.users[6])
+		// A high spoof score fails the dating gate for MATCH rooms.
+		f.exec("UPDATE identity.accounts SET spoof_risk=0.9 WHERE id=$1", f.users[6])
+		f.expect(5, "GET", "/v1/chats/"+room+"/messages", nil, 404)
+		f.exec("UPDATE identity.accounts SET spoof_risk=0 WHERE id=$1", f.users[6])
+		// Location writes are throttled per account after one fix per 30s.
+		b := DataMap{"lat": 16.82, "lng": 96.13, "accuracy": 10, "township": "kamayut", "nonce": uuid.NewString()}
+		f.expect(3, "POST", "/v1/location", b, 204)
+		b["nonce"] = uuid.NewString()
+		f.expect(3, "POST", "/v1/location", b, 429)
+		// A stale blip that no longer maps to a candidate is expired.
+		token := strings.Repeat("a", 64)
+		if err := s.Redis.Set(context.Background(), "blip:"+f.users[3]+":"+token, uuid.NewString(), time.Minute).Err(); err != nil {
+			t.Fatal(err)
+		}
+		f.expect(3, "GET", "/v1/radar/blips/"+token, nil, 404)
+		// Room creation rejects duplicate members and blocked friends.
+		f.expect(0, "POST", "/v1/chats", DataMap{"members": []string{f.users[0]}}, 400)
+		f.exec("INSERT INTO social.friendships(user_id,friend_id) VALUES($1,$2),($2,$1)", f.users[0], f.users[2])
+		f.exec("INSERT INTO safety.blocks(user_id,target_id) VALUES($1,$2)", f.users[0], f.users[2])
+		f.expect(0, "POST", "/v1/chats", DataMap{"members": []string{f.users[2]}}, 403)
+		f.exec("DELETE FROM safety.blocks WHERE user_id=$1 AND target_id=$2", f.users[0], f.users[2])
+		f.exec("DELETE FROM social.friendships WHERE (user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1)", f.users[0], f.users[2])
+		// A ticket that does not decode to a principal is rejected.
+		ticket := strings.Repeat("b", 64)
+		if err := s.Redis.Set(context.Background(), "ws-ticket:"+digest(ticket), "not-json", 30*time.Second).Err(); err != nil {
+			t.Fatal(err)
+		}
+		f.expect(-1, "GET", "/v1/ws?ticket="+ticket, nil, 401)
 	})
 }
