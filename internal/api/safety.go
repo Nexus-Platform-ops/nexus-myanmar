@@ -16,7 +16,7 @@ func (s *Server) notifications(w http.ResponseWriter, r *http.Request) error {
 	if cat != "" && !contains([]string{"ACTIVITY", "SAFETY", "FOLLOW"}, cat) {
 		return fail(400, "invalid_category")
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('id',id,'category',category,'kind',kind,'resource_id',resource_id,'read_at',read_at,'created_at',created_at) FROM social.notifications WHERE user_id=$1 AND ($2='' OR category=$2) ORDER BY created_at DESC,id DESC LIMIT 100`, who(r).ID, cat)
+	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('id',id,'category',category,'kind',kind,'resource_id',resource_id,'read_at',read_at,'created_at',created_at) FROM social.notifications WHERE user_id=$1 AND ($2='' OR category=$2) AND (category='SAFETY' OR (category='ACTIVITY' AND NOT COALESCE((SELECT mute_activity FROM social.notification_prefs WHERE user_id=$1),false)) OR (category='FOLLOW' AND NOT COALESCE((SELECT mute_follow FROM social.notification_prefs WHERE user_id=$1),false))) ORDER BY created_at DESC,id DESC LIMIT 100`, who(r).ID, cat)
 	if err != nil {
 		return err
 	}

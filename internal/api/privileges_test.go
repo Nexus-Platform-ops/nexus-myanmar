@@ -101,6 +101,16 @@ func TestPrivilegeBoundaries(t *testing.T) {
 		if _, err := c.Exec(ctx, "DELETE FROM chat.tombstones WHERE expired_at<now() AND false"); err != nil {
 			t.Fatalf("janitor tombstone delete: %v", err)
 		}
+		if _, err := c.Exec(ctx, `WITH expired AS (DELETE FROM chat.messages WHERE mode='WHISPER' AND whisper_expires_at<=now() RETURNING id,room_id,seq) INSERT INTO chat.tombstones(message_id,room_id,seq) SELECT id,room_id,seq FROM expired ON CONFLICT DO NOTHING`); err != nil {
+			t.Fatalf("janitor whisper sweep: %v", err)
+		}
+		if _, err := c.Exec(ctx, "DELETE FROM identity.idempotency WHERE created_at<now() AND false"); err != nil {
+			t.Fatalf("janitor idempotency cleanup: %v", err)
+		}
+		if _, err := c.Exec(ctx, "DELETE FROM social.recent_searches WHERE searched_at<now() AND false"); err != nil {
+			t.Fatalf("janitor recent-search cleanup: %v", err)
+		}
+		denied(t, execErr(c, ctx, "SELECT query FROM social.recent_searches LIMIT 1"), "janitor search-text read")
 		denied(t, execErr(c, ctx, "SELECT body_cipher FROM chat.messages LIMIT 1"), "janitor message read")
 		denied(t, execErr(c, ctx, "SELECT fix_cipher FROM private.user_locations LIMIT 1"), "janitor exact-fix read")
 		denied(t, execErr(c, ctx, "SELECT id FROM identity.accounts LIMIT 1"), "janitor identity read")

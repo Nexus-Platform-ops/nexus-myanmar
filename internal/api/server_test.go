@@ -114,6 +114,11 @@ func (f *fixture) truncate(tables string) {
 
 func (f *fixture) req(i int, method, path string, body any) (int, DataMap) {
 	f.t.Helper()
+	return f.reqHeaders(i, method, path, body, nil)
+}
+
+func (f *fixture) reqHeaders(i int, method, path string, body any, headers map[string]string) (int, DataMap) {
+	f.t.Helper()
 	var reader io.Reader
 	if body != nil {
 		b, e := json.Marshal(body)
@@ -130,6 +135,9 @@ func (f *fixture) req(i int, method, path string, body any) (int, DataMap) {
 		r.Header.Set("Authorization", "Bearer "+f.tokens[i])
 	}
 	r.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		r.Header.Set(k, v)
+	}
 	res, e := http.DefaultClient.Do(r)
 	if e != nil {
 		f.t.Fatal(e)
@@ -631,6 +639,141 @@ func TestIntegration(t *testing.T) {
 			t.Fatal("fully-read whisper resurrected via dedup")
 		}
 		f.exec("DELETE FROM social.friendships")
+	})
+	run("whisper_time_expiry", func(t *testing.T) {
+		ctx := context.Background()
+		msg := f.expect(5, "POST", "/v1/chats/"+room+"/messages", DataMap{"text": "ttl secret", "mode": "WHISPER", "client_id": uuid.NewString()}, 201)
+		if n := len(f.expect(6, "GET", "/v1/chats/"+room+"/messages", nil, 200)["items"].([]any)); n != 1 {
+			t.Fatal("whisper not delivered before expiry")
+		}
+		f.exec("UPDATE chat.messages SET whisper_expires_at=now()-interval '1 second' WHERE id=$1", msg["id"])
+		if n := len(f.expect(6, "GET", "/v1/chats/"+room+"/messages", nil, 200)["items"].([]any)); n != 0 {
+			t.Fatal("expired whisper still readable")
+		}
+		f.exec(`WITH expired AS (DELETE FROM chat.messages WHERE mode='WHISPER' AND whisper_expires_at<=now() RETURNING id,room_id,seq) INSERT INTO chat.tombstones(message_id,room_id,seq) SELECT id,room_id,seq FROM expired ON CONFLICT DO NOTHING`)
+		var swept, tomb bool
+		if err := f.boot.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM chat.messages WHERE id=$1),EXISTS(SELECT 1 FROM chat.tombstones WHERE message_id=$1)`, msg["id"]).Scan(&swept, &tomb); err != nil {
+			t.Fatal(err)
+		}
+		if !swept || !tomb {
+			t.Fatalf("janitor sweep swept=%v tombstone=%v", swept, tomb)
+		}
+		f.exec("DELETE FROM chat.tombstones WHERE message_id=$1", msg["id"])
+	})
+	run("idempotency_key_replay", func(t *testing.T) {
+		ctx := context.Background()
+		key := uuid.NewString()
+		body := DataMap{"body": "Idempotent post", "audience": "PUBLIC", "township": "kamayut"}
+		st1, first := f.reqHeaders(0, "POST", "/v1/posts", body, map[string]string{"Idempotency-Key": key})
+		st2, second := f.reqHeaders(0, "POST", "/v1/posts", body, map[string]string{"Idempotency-Key": key})
+		if st1 != 202 || st2 != 202 || first["id"] != second["id"] {
+			t.Fatalf("replay mismatch: %d %d %v %v", st1, st2, first, second)
+		}
+		var posts int
+		if err := f.boot.QueryRow(ctx, `SELECT count(*) FROM social.posts WHERE body='Idempotent post'`).Scan(&posts); err != nil || posts != 1 {
+			t.Fatalf("duplicate post rows=%d err=%v", posts, err)
+		}
+		if st, _ := f.reqHeaders(0, "POST", "/v1/posts", DataMap{"body": "Different body", "audience": "PUBLIC", "township": "kamayut"}, map[string]string{"Idempotency-Key": key}); st != 409 {
+			t.Fatalf("key reuse with different body: %d", st)
+		}
+		if st, _ := f.reqHeaders(0, "POST", "/v1/posts", body, map[string]string{"Idempotency-Key": "not-a-uuid"}); st != 400 {
+			t.Fatalf("invalid idempotency key: %d", st)
+		}
+		rkey := uuid.NewString()
+		report := DataMap{"target_id": f.users[4], "category": "OTHER", "details": "idempotent report"}
+		rs1, r1 := f.reqHeaders(0, "POST", "/v1/safety/report", report, map[string]string{"Idempotency-Key": rkey})
+		rs2, r2 := f.reqHeaders(0, "POST", "/v1/safety/report", report, map[string]string{"Idempotency-Key": rkey})
+		if rs1 != 202 || rs2 != 202 || r1["case_id"] != r2["case_id"] {
+			t.Fatalf("report replay mismatch: %d %d %v %v", rs1, rs2, r1, r2)
+		}
+		var reports int
+		if err := f.boot.QueryRow(ctx, `SELECT count(*) FROM safety.reports WHERE reporter=$1 AND target_id=$2`, f.users[0], f.users[4]).Scan(&reports); err != nil || reports != 1 {
+			t.Fatalf("duplicate report rows=%d err=%v", reports, err)
+		}
+		f.exec("DELETE FROM social.posts WHERE body='Idempotent post'")
+		f.exec("DELETE FROM safety.reports WHERE reporter=$1", f.users[0])
+		f.exec("DELETE FROM safety.blocks WHERE user_id=$1", f.users[0])
+		f.exec("DELETE FROM social.notifications WHERE user_id=$1 AND category='SAFETY'", f.users[0])
+		f.exec("DELETE FROM identity.idempotency WHERE user_id=$1", f.users[0])
+	})
+	run("friend_graph_api", func(t *testing.T) {
+		ctx := context.Background()
+		f.expect(1, "POST", "/v1/friends", DataMap{"user_id": f.users[1]}, 400)
+		f.expect(1, "POST", "/v1/friends", DataMap{"user_id": "bad"}, 400)
+		out := f.expect(1, "POST", "/v1/friends", DataMap{"user_id": f.users[2]}, 201)
+		if out["user_id"] != f.users[2] {
+			t.Fatal(out)
+		}
+		f.expect(1, "POST", "/v1/friends", DataMap{"user_id": f.users[2]}, 201)
+		list := f.expect(1, "GET", "/v1/friends", nil, 200)
+		if n := len(list["items"].([]any)); n != 1 {
+			t.Fatalf("friend list rows=%d", n)
+		}
+		var rows int
+		if err := f.boot.QueryRow(ctx, `SELECT count(*) FROM social.friendships WHERE (user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1)`, f.users[1], f.users[2]).Scan(&rows); err != nil || rows != 2 {
+			t.Fatalf("symmetric rows=%d err=%v", rows, err)
+		}
+		notice := f.expect(2, "GET", "/v1/notifications?category=FOLLOW", nil, 200)
+		if len(notice["items"].([]any)) != 1 {
+			t.Fatalf("friend notification duplicated: %v", notice)
+		}
+		f.exec(`INSERT INTO safety.blocks(user_id,target_id) VALUES($1,$2)`, f.users[2], f.users[1])
+		f.expect(1, "POST", "/v1/friends", DataMap{"user_id": f.users[2]}, 403)
+		f.exec("DELETE FROM safety.blocks WHERE user_id=$1 AND target_id=$2", f.users[2], f.users[1])
+		f.exec("UPDATE identity.accounts SET ghost=true WHERE id=$1", f.users[3])
+		f.expect(1, "POST", "/v1/friends", DataMap{"user_id": f.users[3]}, 404)
+		f.exec("UPDATE identity.accounts SET ghost=false WHERE id=$1", f.users[3])
+		f.expect(1, "DELETE", "/v1/friends/"+f.users[2], nil, 204)
+		f.expect(1, "DELETE", "/v1/friends/"+f.users[2], nil, 404)
+		if err := f.boot.QueryRow(ctx, `SELECT count(*) FROM social.friendships WHERE (user_id=$1 AND friend_id=$2) OR (user_id=$2 AND friend_id=$1)`, f.users[1], f.users[2]).Scan(&rows); err != nil || rows != 0 {
+			t.Fatalf("friendship rows after delete=%d err=%v", rows, err)
+		}
+		f.exec("DELETE FROM social.notifications WHERE user_id=$1 AND kind='FRIEND_ADDED'", f.users[2])
+	})
+	run("notification_preferences", func(t *testing.T) {
+		d := f.expect(4, "GET", "/v1/notifications/preferences", nil, 200)
+		if d["activity_muted"] != false || d["safety_locked"] != true {
+			t.Fatal(d)
+		}
+		f.expect(4, "PUT", "/v1/notifications/preferences", DataMap{"activity_muted": true, "follow_muted": true}, 200)
+		f.expect(4, "PUT", "/v1/notifications/preferences", DataMap{"safety_muted": true}, 400)
+		f.exec(`INSERT INTO social.notifications(user_id,category,kind) VALUES($1,'ACTIVITY','PROBE'),($1,'SAFETY','PROBE')`, f.users[4])
+		if n := len(f.expect(4, "GET", "/v1/notifications?category=ACTIVITY", nil, 200)["items"].([]any)); n != 0 {
+			t.Fatalf("muted activity delivered: %d", n)
+		}
+		if n := len(f.expect(4, "GET", "/v1/notifications?category=SAFETY", nil, 200)["items"].([]any)); n < 1 {
+			t.Fatal("safety notice suppressed by mute")
+		}
+		f.expect(4, "PUT", "/v1/notifications/preferences", DataMap{"activity_muted": false, "follow_muted": false}, 200)
+		if n := len(f.expect(4, "GET", "/v1/notifications?category=ACTIVITY", nil, 200)["items"].([]any)); n != 1 {
+			t.Fatalf("unmuted activity missing: %d", n)
+		}
+		f.exec("DELETE FROM social.notifications WHERE user_id=$1 AND kind='PROBE'", f.users[4])
+		f.exec("DELETE FROM social.notification_prefs WHERE user_id=$1", f.users[4])
+	})
+	run("search_pagination_and_recents", func(t *testing.T) {
+		for i := 0; i < 22; i++ {
+			f.exec(`INSERT INTO social.posts(author,body,township,audience,status) VALUES($1,'CursorFixture','kamayut','PUBLIC','LIVE')`, f.users[0])
+		}
+		d := f.expect(1, "GET", "/v1/search?type=posts&q=CursorFixture", nil, 200)
+		if len(d["items"].([]any)) != 20 || d["next_cursor"] == nil {
+			t.Fatalf("search first page: %v", d)
+		}
+		next := d["next_cursor"].(string)
+		d = f.expect(1, "GET", "/v1/search?type=posts&q=CursorFixture&cursor="+next, nil, 200)
+		if len(d["items"].([]any)) != 2 || d["next_cursor"] != nil {
+			t.Fatalf("search second page: %v", d)
+		}
+		f.expect(1, "GET", "/v1/search?type=people&q=Social&cursor=bad", nil, 400)
+		recent := f.expect(1, "GET", "/v1/search/recent", nil, 200)
+		if len(recent["items"].([]any)) < 1 {
+			t.Fatal("search not recorded")
+		}
+		f.expect(1, "DELETE", "/v1/search/recent", nil, 204)
+		if n := len(f.expect(1, "GET", "/v1/search/recent", nil, 200)["items"].([]any)); n != 0 {
+			t.Fatal("recent searches not cleared")
+		}
+		f.exec("DELETE FROM social.posts WHERE body='CursorFixture'")
 	})
 	run("notifications_and_sessions_ownership", func(t *testing.T) {
 		d := f.expect(5, "GET", "/v1/notifications", nil, 200)

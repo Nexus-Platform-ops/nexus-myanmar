@@ -179,7 +179,7 @@ func (s *Server) routes() {
 			return fail(503, "dependency_unavailable")
 		}
 		var v int
-		if s.DB.QueryRow(ctx, "SELECT version FROM identity.schema_version").Scan(&v) != nil || v < 6 {
+		if s.DB.QueryRow(ctx, "SELECT version FROM identity.schema_version").Scan(&v) != nil || v < 7 {
 			return fail(503, "schema_mismatch")
 		}
 		write(w, 200, map[string]any{"status": "ready", "release": "development-baseline"})
@@ -202,13 +202,18 @@ func (s *Server) routes() {
 	s.protected("GET /v1/radar/blips/{id}", s.blip)
 	s.protected("POST /v1/actions/swipe", s.swipe)
 	s.protected("GET /v1/feed", s.feed)
-	s.protected("POST /v1/posts", s.createPost)
+	s.protectedIdempotent("POST /v1/posts", s.createPost)
 	s.protected("POST /v1/posts/{id}/reactions", s.react)
 	s.protected("POST /v1/posts/{id}/bookmark", s.bookmark)
 	s.protected("GET /v1/posts/{id}/comments", s.comments)
 	s.protected("POST /v1/posts/{id}/comments", s.createComment)
-	s.protected("POST /v1/posts/{id}/shares", s.share)
+	s.protectedIdempotent("POST /v1/posts/{id}/shares", s.share)
 	s.protected("GET /v1/search", s.search)
+	s.protected("GET /v1/search/recent", s.recentSearches)
+	s.protected("DELETE /v1/search/recent", s.clearRecentSearches)
+	s.protected("GET /v1/friends", s.friends)
+	s.protected("POST /v1/friends", s.addFriend)
+	s.protected("DELETE /v1/friends/{id}", s.removeFriend)
 	s.protected("GET /v1/events", s.events)
 	s.protected("POST /v1/events", s.createEvent)
 	s.protected("POST /v1/events/{id}/rsvp", s.rsvp)
@@ -221,8 +226,10 @@ func (s *Server) routes() {
 	s.protected("POST /v1/chats/{id}/messages", s.send)
 	s.protected("POST /v1/chats/{id}/read", s.readMessages)
 	s.protected("GET /v1/notifications", s.notifications)
+	s.protected("GET /v1/notifications/preferences", s.notificationPrefs)
+	s.protected("PUT /v1/notifications/preferences", s.putNotificationPrefs)
 	s.protected("POST /v1/notifications/{id}/read", s.readNotification)
-	s.protected("POST /v1/safety/report", s.report)
+	s.protectedIdempotent("POST /v1/safety/report", s.report)
 	s.protected("GET /v1/safety/reports", s.reports)
 	s.protected("POST /v1/safety/appeals", s.createAppeal)
 	s.protected("GET /v1/safety/appeals", s.appeals)

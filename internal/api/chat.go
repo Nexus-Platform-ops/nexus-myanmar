@@ -177,7 +177,7 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) error {
 			return fail(400, "invalid_sequence")
 		}
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('id',id,'sender',sender,'seq',seq,'text',pgp_sym_decrypt(body_cipher,$4),'mode',mode,'created_at',created_at) FROM chat.messages WHERE room_id=$1 AND seq<$2 AND NOT (mode='WHISPER' AND EXISTS(SELECT 1 FROM chat.whisper_reads w WHERE w.message_id=chat.messages.id AND w.reader=$3)) ORDER BY seq DESC LIMIT 50`, id, before, who(r).ID, s.Cfg.DataKey)
+	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('id',id,'sender',sender,'seq',seq,'text',pgp_sym_decrypt(body_cipher,$4),'mode',mode,'created_at',created_at) FROM chat.messages WHERE room_id=$1 AND seq<$2 AND NOT (mode='WHISPER' AND (whisper_expires_at<=now() OR EXISTS(SELECT 1 FROM chat.whisper_reads w WHERE w.message_id=chat.messages.id AND w.reader=$3))) ORDER BY seq DESC LIMIT 50`, id, before, who(r).ID, s.Cfg.DataKey)
 	if err != nil {
 		return err
 	}
@@ -252,7 +252,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	mid = uuid.NewString()
-	err = tx.QueryRow(r.Context(), `INSERT INTO chat.messages(id,room_id,sender,body_cipher,mode,client_id) VALUES($1,$2,$3,pgp_sym_encrypt($4,$5),$6,$7) RETURNING seq`, mid, id, who(r).ID, b.Text, s.Cfg.DataKey, b.Mode, b.ClientID).Scan(&seq)
+	err = tx.QueryRow(r.Context(), `INSERT INTO chat.messages(id,room_id,sender,body_cipher,mode,client_id,whisper_expires_at) VALUES($1,$2,$3,pgp_sym_encrypt($4,$5),$6,$7,CASE WHEN $6='WHISPER' THEN now()+interval '24 hours' END) RETURNING seq`, mid, id, who(r).ID, b.Text, s.Cfg.DataKey, b.Mode, b.ClientID).Scan(&seq)
 	if err != nil {
 		return err
 	}
@@ -291,13 +291,13 @@ func (s *Server) readMessages(w http.ResponseWriter, r *http.Request) error {
 	}
 	defer tx.Rollback(r.Context())
 	// Per-recipient semantics: mark consumed for this reader only. A whisper is
-	// physically deleted only when every non-sender room member has read it, so
-	// one reader can never wipe a group room for everyone else.
-	marked, err := tx.Exec(r.Context(), `INSERT INTO chat.whisper_reads(message_id,reader) SELECT id,$2 FROM chat.messages WHERE room_id=$1 AND sender<>$2 AND seq<=$3 AND mode='WHISPER' ON CONFLICT DO NOTHING`, id, who(r).ID, b.Through)
+	// physically deleted only when every non-sender room member has read it, or
+	// its 24h lifetime elapsed, so one reader can never wipe a group room early.
+	marked, err := tx.Exec(r.Context(), `INSERT INTO chat.whisper_reads(message_id,reader) SELECT id,$2 FROM chat.messages WHERE room_id=$1 AND sender<>$2 AND seq<=$3 AND mode='WHISPER' AND whisper_expires_at>now() ON CONFLICT DO NOTHING`, id, who(r).ID, b.Through)
 	if err != nil {
 		return err
 	}
-	rows, err := tx.Query(r.Context(), `DELETE FROM chat.messages m WHERE m.room_id=$1 AND m.sender<>$2 AND m.seq<=$3 AND m.mode='WHISPER' AND NOT EXISTS(SELECT 1 FROM chat.members x WHERE x.room_id=m.room_id AND x.user_id<>m.sender AND NOT EXISTS(SELECT 1 FROM chat.whisper_reads w WHERE w.message_id=m.id AND w.reader=x.user_id)) RETURNING m.id,m.seq`, id, who(r).ID, b.Through)
+	rows, err := tx.Query(r.Context(), `DELETE FROM chat.messages m WHERE m.room_id=$1 AND m.sender<>$2 AND m.seq<=$3 AND m.mode='WHISPER' AND (m.whisper_expires_at<=now() OR NOT EXISTS(SELECT 1 FROM chat.members x WHERE x.room_id=m.room_id AND x.user_id<>m.sender AND NOT EXISTS(SELECT 1 FROM chat.whisper_reads w WHERE w.message_id=m.id AND w.reader=x.user_id))) RETURNING m.id,m.seq`, id, who(r).ID, b.Through)
 	if err != nil {
 		return err
 	}

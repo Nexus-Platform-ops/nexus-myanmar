@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -256,6 +257,32 @@ func (s *Server) share(w http.ResponseWriter, r *http.Request) error {
 	write(w, 201, map[string]any{"id": shareID, "post_id": id})
 	return nil
 }
+
+type searchPage struct {
+	Key string `json:"k"`
+	ID  string `json:"id"`
+}
+
+func parseSearchCursor(raw string) (searchPage, error) {
+	if raw == "" {
+		return searchPage{}, nil
+	}
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return searchPage{}, fail(400, "invalid_cursor")
+	}
+	var c searchPage
+	if json.Unmarshal(b, &c) != nil || c.Key == "" || !validID(c.ID) {
+		return searchPage{}, fail(400, "invalid_cursor")
+	}
+	return c, nil
+}
+
+func searchCursor(key, id string) string {
+	b, _ := json.Marshal(searchPage{key, id})
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
 func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	kind := r.URL.Query().Get("type")
@@ -265,16 +292,34 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	if len([]rune(q)) < 2 || len([]rune(q)) > 100 {
 		return fail(400, "query_length_2_to_100")
 	}
+	c, err := parseSearchCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		return err
+	}
+	has := c.Key != ""
+	pageID := c.ID
+	if !has {
+		pageID = "00000000-0000-0000-0000-000000000000"
+	}
+	keyTime := time.Now().UTC().Add(24 * time.Hour)
+	if has && kind != "people" {
+		keyTime, err = time.Parse(time.RFC3339Nano, c.Key)
+		if err != nil {
+			return fail(400, "invalid_cursor")
+		}
+	}
+	if kind == "events" && !has {
+		keyTime = time.Time{}
+	}
 	pattern := "%" + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(q, "\\", "\\\\"), "%", "\\%"), "_", "\\_") + "%"
 	var rows pgx.Rows
-	var err error
 	switch kind {
 	case "people":
-		rows, err = s.DB.Query(r.Context(), `SELECT json_build_object('user_id',p.user_id,'real_name',p.real_name,'township',p.township,'bio',p.bio) FROM social.user_profiles p JOIN identity.accounts a ON a.id=p.user_id WHERE p.real_name ILIKE $2 AND NOT a.restricted AND NOT a.ghost AND NOT EXISTS(SELECT 1 FROM safety.blocks b WHERE (b.user_id=$1 AND b.target_id=p.user_id) OR (b.user_id=p.user_id AND b.target_id=$1)) ORDER BY p.real_name,p.user_id LIMIT 20`, who(r).ID, pattern)
+		rows, err = s.DB.Query(r.Context(), `SELECT json_build_object('user_id',p.user_id,'real_name',p.real_name,'township',p.township,'bio',p.bio) FROM social.user_profiles p JOIN identity.accounts a ON a.id=p.user_id WHERE p.real_name ILIKE $2 AND NOT a.restricted AND NOT a.ghost AND NOT EXISTS(SELECT 1 FROM safety.blocks b WHERE (b.user_id=$1 AND b.target_id=p.user_id) OR (b.user_id=p.user_id AND b.target_id=$1)) AND ($5=false OR (p.real_name,p.user_id)>($3,$4::uuid)) ORDER BY p.real_name,p.user_id LIMIT 21`, who(r).ID, pattern, c.Key, pageID, has)
 	case "posts":
-		rows, err = s.DB.Query(r.Context(), `SELECT json_build_object('id',p.id,'body',p.body,'township',p.township) FROM social.posts p WHERE `+postVisibility+` AND p.body ILIKE $2 ORDER BY p.created_at DESC,p.id DESC LIMIT 20`, who(r).ID, pattern)
+		rows, err = s.DB.Query(r.Context(), `SELECT json_build_object('id',p.id,'body',p.body,'township',p.township,'created_at',p.created_at) FROM social.posts p WHERE `+postVisibility+` AND p.body ILIKE $2 AND ($5=false OR (p.created_at,p.id)<($3::timestamptz,$4::uuid)) ORDER BY p.created_at DESC,p.id DESC LIMIT 21`, who(r).ID, pattern, keyTime, pageID, has)
 	case "events":
-		rows, err = s.DB.Query(r.Context(), `SELECT json_build_object('id',e.id,'title',e.title,'township',e.township,'starts_at',e.starts_at) FROM social.events e WHERE e.status='LIVE' AND e.title ILIKE $2 AND NOT EXISTS(SELECT 1 FROM safety.blocks b WHERE (b.user_id=$1 AND b.target_id=e.host) OR (b.user_id=e.host AND b.target_id=$1)) ORDER BY e.starts_at,e.id LIMIT 20`, who(r).ID, pattern)
+		rows, err = s.DB.Query(r.Context(), `SELECT json_build_object('id',e.id,'title',e.title,'township',e.township,'starts_at',e.starts_at) FROM social.events e WHERE e.status='LIVE' AND e.title ILIKE $2 AND NOT EXISTS(SELECT 1 FROM safety.blocks b WHERE (b.user_id=$1 AND b.target_id=e.host) OR (b.user_id=e.host AND b.target_id=$1)) AND ($5=false OR (e.starts_at,e.id)>($3::timestamptz,$4::uuid)) ORDER BY e.starts_at,e.id LIMIT 21`, who(r).ID, pattern, keyTime, pageID, has)
 	default:
 		return fail(400, "unsupported_search_type")
 	}
@@ -285,7 +330,65 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	write(w, 200, map[string]any{"items": out, "type": kind})
+	var next any
+	if len(out) > 20 {
+		out = out[:20]
+		switch kind {
+		case "people":
+			var v struct {
+				ID   string `json:"user_id"`
+				Name string `json:"real_name"`
+			}
+			if err = json.Unmarshal(out[19], &v); err != nil {
+				return err
+			}
+			next = searchCursor(v.Name, v.ID)
+		case "posts":
+			var v struct {
+				ID string    `json:"id"`
+				At time.Time `json:"created_at"`
+			}
+			if err = json.Unmarshal(out[19], &v); err != nil {
+				return err
+			}
+			next = searchCursor(v.At.UTC().Format(time.RFC3339Nano), v.ID)
+		case "events":
+			var v struct {
+				ID string    `json:"id"`
+				At time.Time `json:"starts_at"`
+			}
+			if err = json.Unmarshal(out[19], &v); err != nil {
+				return err
+			}
+			next = searchCursor(v.At.UTC().Format(time.RFC3339Nano), v.ID)
+		}
+	}
+	if _, err = s.DB.Exec(r.Context(), `INSERT INTO social.recent_searches(user_id,query,kind) VALUES($1,$2,$3) ON CONFLICT(user_id,query,kind) DO UPDATE SET searched_at=now()`, who(r).ID, q, kind); err != nil {
+		return err
+	}
+	_, _ = s.DB.Exec(r.Context(), `DELETE FROM social.recent_searches WHERE user_id=$1 AND (query,kind) NOT IN (SELECT query,kind FROM social.recent_searches WHERE user_id=$1 ORDER BY searched_at DESC LIMIT 20)`, who(r).ID)
+	write(w, 200, map[string]any{"items": out, "type": kind, "next_cursor": next})
+	return nil
+}
+
+func (s *Server) recentSearches(w http.ResponseWriter, r *http.Request) error {
+	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('query',query,'type',kind,'searched_at',searched_at) FROM social.recent_searches WHERE user_id=$1 ORDER BY searched_at DESC,query LIMIT 20`, who(r).ID)
+	if err != nil {
+		return err
+	}
+	out, err := jsonRows(rows)
+	if err != nil {
+		return err
+	}
+	write(w, 200, map[string]any{"items": out})
+	return nil
+}
+
+func (s *Server) clearRecentSearches(w http.ResponseWriter, r *http.Request) error {
+	if _, err := s.DB.Exec(r.Context(), `DELETE FROM social.recent_searches WHERE user_id=$1`, who(r).ID); err != nil {
+		return err
+	}
+	w.WriteHeader(204)
 	return nil
 }
 func (s *Server) events(w http.ResponseWriter, r *http.Request) error {
