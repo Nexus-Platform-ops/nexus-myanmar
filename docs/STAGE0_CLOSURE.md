@@ -56,6 +56,26 @@ and ran the live race-detector suite, including `websocket_ordered_replay`,
 `account_deletion_grace_and_purge` and `analytics_aggregate_only`. Evidence log:
 `evidence/p2-backlog.md`.
 
+## S2 coverage gate closure
+
+| ID | Item | Evidence tier | Status |
+|---|---|---|---|
+| R1 | Go API statement coverage >=80% (`nexus/internal/api`) | CI run 42203777688, commit ba1108f | CLOSED 2026-11-06 |
+| R2 | Flutter line coverage >=80% (`apps/mobile/lib`) | CI run 42203777688, commit ba1108f | CLOSED 2026-11-06 |
+
+Run 42203777688 ("Verify Nexus") completed `success` for backend, mobile and
+graphql on commit `ba1108f` (backend 54s, mobile 1m45s, graphql 8s). The two
+gate steps are fail-closed awk thresholds over the race-step `coverage.out` and
+`lcov.info`: Go API 83.63% (1492/1784) and Flutter 95.88% (1325/1382), both
+measured with the CI toolchain.
+
+Two earlier runs failed and are recorded rather than hidden: run 42198661290
+failed at the old gate step, which re-ran the integration suite; run
+42202118487 then failed with `API coverage 79.54% < 80%` because the local
+80.5% (1512/1879) came from Go 1.27.1 while CI pins Go 1.25.5. Commit `ba1108f`
+adds the malformed-body/read-only/room-and-geo coverage sweeps that close the
+gap. Evidence log: `evidence/coverage-gate.md`.
+
 ## Honest boundaries (unchanged)
 
 - **P0-3 is at-rest encryption, not E2EE.** The API holds the key and can decrypt. The shared `DATA_KEY` is not KMS-envelope encryption.
@@ -68,4 +88,4 @@ and ran the live race-detector suite, including `websocket_ordered_replay`,
 
 ## Remaining P0
 
-None in the Stage 0/S2 backlog; P0-4 closed with CI run 42175902801 and the P1 queue closed with CI run 42184447461. Four of the six P2 items (P2-1, P2-2, P2-3, P2-5) closed with CI run 42189122017; P2-4 (media) and P2-6 (k6 staging) stay open and are not claimed. External gates stay outside this backlog — independent pentest / security certification is an S4 gate, and moderation team staffing/SLA dispatch is an S4/S5 project-side gate. P0-4's own limits (brigade flag records suspicion rather than preventing the initial HIGH hold, thresholds are engineering defaults, appeals are CLI-only) are recorded in `evidence/p0-4-moderation.md`; P1 limits are in `evidence/p1-backlog.md`; P2 limits are in `evidence/p2-backlog.md`.
+None in the Stage 0/S2 backlog; P0-4 closed with CI run 42175902801 and the P1 queue closed with CI run 42184447461. Four of the six P2 items (P2-1, P2-2, P2-3, P2-5) closed with CI run 42189122017; P2-4 (media) and P2-6 (k6 staging) stay open and are not claimed. The S2 coverage gate closed with CI run 42203777688 (commit ba1108f). External gates stay outside this backlog — independent pentest / security certification is an S4 gate, and moderation team staffing/SLA dispatch is an S4/S5 project-side gate. P0-4's own limits (brigade flag records suspicion rather than preventing the initial HIGH hold, thresholds are engineering defaults, appeals are CLI-only) are recorded in `evidence/p0-4-moderation.md`; P1 limits are in `evidence/p1-backlog.md`; P2 limits are in `evidence/p2-backlog.md`.
