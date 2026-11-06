@@ -357,6 +357,15 @@ func (s *Server) websocket(w http.ResponseWriter, r *http.Request) error {
 	if json.Unmarshal(raw, &p) != nil || !validID(p.ID) {
 		return fail(401, "ticket_expired")
 	}
+	// cursor is the private.outbox id the client last applied; replay resumes after it.
+	var cursor int64
+	resume := false
+	if v := r.URL.Query().Get("cursor"); v != "" {
+		if cursor, err = strconv.ParseInt(v, 10, 64); err != nil || cursor < 0 {
+			return fail(400, "invalid_cursor")
+		}
+		resume = true
+	}
 	// Read-only invalidation stream, not a content broadcast. REST rechecks authorization.
 	up := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { o := r.Header.Get("Origin"); return o == "" || o == s.Cfg.Origin }, ReadBufferSize: 1024, WriteBufferSize: 1024}
 	c, err := up.Upgrade(w, r, nil)
@@ -376,11 +385,72 @@ func (s *Server) websocket(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 	}()
+	if !resume {
+		// No cursor means a fresh client: start at the current head instead of
+		// replaying everything the account ever received.
+		if err = s.DB.QueryRow(r.Context(), `SELECT COALESCE(MAX(id),0) FROM private.outbox WHERE user_id=$1`, p.ID).Scan(&cursor); err != nil {
+			return nil
+		}
+	}
+	if resume && cursor > 0 {
+		// The janitor prunes outbox rows after 24h, so a cursor below the oldest
+		// retained id cannot be fully replayed; the client must refetch.
+		var oldest int64
+		if err = s.DB.QueryRow(r.Context(), `SELECT COALESCE(MIN(id),0) FROM private.outbox WHERE user_id=$1`, p.ID).Scan(&oldest); err != nil {
+			return nil
+		}
+		if oldest > cursor+1 {
+			_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if c.WriteJSON(map[string]any{"type": "replay_truncated", "cursor": cursor}) != nil {
+				return nil
+			}
+		}
+	}
+	// drain delivers every queued event in outbox id order and returns once the
+	// backlog is empty. Ids are assigned at INSERT; a transaction that commits
+	// after a higher id was delivered can still be missed (see evidence log).
+	drain := func() error {
+		for {
+			rows, err := s.DB.Query(r.Context(), `SELECT id,topic,payload FROM private.outbox WHERE user_id=$1 AND id>$2 ORDER BY id LIMIT 100`, p.ID, cursor)
+			if err != nil {
+				return err
+			}
+			n := 0
+			for rows.Next() {
+				var id int64
+				var topic string
+				var payload json.RawMessage
+				if err = rows.Scan(&id, &topic, &payload); err != nil {
+					rows.Close()
+					return err
+				}
+				_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				if err = c.WriteJSON(map[string]any{"type": "event", "id": id, "topic": topic, "payload": payload}); err != nil {
+					rows.Close()
+					return err
+				}
+				cursor = id
+				n++
+			}
+			err = rows.Err()
+			rows.Close()
+			if err != nil {
+				return err
+			}
+			if n < 100 {
+				return nil
+			}
+		}
+	}
+	if resume {
+		if err = drain(); err != nil {
+			return nil
+		}
+	}
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	heartbeat := time.NewTicker(25 * time.Second)
 	defer heartbeat.Stop()
-	last := time.Now().UTC()
 	for {
 		select {
 		case <-done:
@@ -388,7 +458,13 @@ func (s *Server) websocket(w http.ResponseWriter, r *http.Request) error {
 		case <-r.Context().Done():
 			return nil
 		case <-heartbeat.C:
+			// Control ping keeps the transport warm; the JSON frame carries the
+			// cursor so clients can checkpoint without waiting for an event.
 			if c.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)) != nil {
+				return nil
+			}
+			_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if c.WriteJSON(map[string]any{"type": "heartbeat", "cursor": cursor}) != nil {
 				return nil
 			}
 		case <-tick.C:
@@ -397,17 +473,8 @@ func (s *Server) websocket(w http.ResponseWriter, r *http.Request) error {
 			if err != nil || !active {
 				return nil
 			}
-			var changed bool
-			err = s.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM private.outbox WHERE user_id=$1 AND created_at>$2)`, p.ID, last).Scan(&changed)
-			if err != nil {
+			if err = drain(); err != nil {
 				return nil
-			}
-			if changed {
-				last = time.Now().UTC()
-				_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if c.WriteJSON(map[string]any{"type": "invalidate", "channels": []string{"chats", "notifications"}}) != nil {
-					return nil
-				}
 			}
 		}
 	}

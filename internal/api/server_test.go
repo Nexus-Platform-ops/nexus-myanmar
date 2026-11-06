@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -426,6 +427,91 @@ func TestIntegration(t *testing.T) {
 		if err == nil || res.StatusCode != 401 {
 			t.Fatal("ticket reused")
 		}
+	})
+	run("websocket_ordered_replay", func(t *testing.T) {
+		f.truncate("private.outbox")
+		var base int64
+		if err := f.boot.QueryRow(context.Background(), `SELECT COALESCE(MAX(id),0) FROM private.outbox`).Scan(&base); err != nil {
+			t.Fatal(err)
+		}
+		for n := 1; n <= 3; n++ {
+			f.exec("INSERT INTO private.outbox(topic,user_id,payload) VALUES('test.event',$1,jsonb_build_object('n',$2::int))", f.users[0], n)
+		}
+		f.exec("INSERT INTO private.outbox(topic,user_id,payload) VALUES('test.event',$1,jsonb_build_object('n',99))", f.users[1])
+		dial := func(i int, cursor *int64) *websocket.Conn {
+			d := f.expect(i, "POST", "/v1/realtime/ticket", DataMap{}, 201)
+			url := "ws" + strings.TrimPrefix(f.ts.URL, "http") + "/v1/ws?ticket=" + d["ticket"].(string)
+			if cursor != nil {
+				url += "&cursor=" + strconv.FormatInt(*cursor, 10)
+			}
+			c, _, err := websocket.DefaultDialer.Dial(url, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+			return c
+		}
+		type frame struct {
+			Type    string         `json:"type"`
+			ID      int64          `json:"id"`
+			Topic   string         `json:"topic"`
+			Cursor  int64          `json:"cursor"`
+			Payload map[string]any `json:"payload"`
+		}
+		read := func(c *websocket.Conn) frame {
+			var m frame
+			if err := c.ReadJSON(&m); err != nil {
+				t.Fatal(err)
+			}
+			return m
+		}
+		expectEvent := func(c *websocket.Conn, n int) int64 {
+			m := read(c)
+			if m.Type != "event" || m.Topic != "test.event" {
+				t.Fatalf("unexpected frame %+v", m)
+			}
+			if m.Payload["n"].(float64) != float64(n) {
+				t.Fatalf("out of order: got %v want %d", m.Payload["n"], n)
+			}
+			return m.ID
+		}
+
+		c := dial(0, &base)
+		first := expectEvent(c, 1)
+		expectEvent(c, 2)
+		c.Close()
+
+		// Resume from the first event: no duplicate, no gap.
+		c = dial(0, &first)
+		later := expectEvent(c, 2)
+		expectEvent(c, 3)
+
+		// A pruned range is announced, not silently skipped.
+		f.exec("DELETE FROM private.outbox WHERE id=$1", first)
+		c.Close()
+		missed := first - 1
+		c = dial(0, &missed)
+		if m := read(c); m.Type != "replay_truncated" || m.Cursor != missed {
+			t.Fatalf("missing truncation notice: %+v", m)
+		}
+		last := expectEvent(c, 2)
+		expectEvent(c, 3)
+		if last != later {
+			t.Fatal("cursor drifted")
+		}
+
+		// Live events arrive on the poll tick after the replay drains.
+		f.exec("INSERT INTO private.outbox(topic,user_id,payload) VALUES('test.event',$1,jsonb_build_object('n',4))", f.users[0])
+		expectEvent(c, 4)
+		c.Close()
+
+		// An unparseable cursor is rejected before the upgrade.
+		d := f.expect(0, "POST", "/v1/realtime/ticket", DataMap{}, 201)
+		_, res, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(f.ts.URL, "http")+"/v1/ws?ticket="+d["ticket"].(string)+"&cursor=abc", nil)
+		if err == nil || res.StatusCode != 400 {
+			t.Fatal("invalid cursor accepted")
+		}
+		f.truncate("private.outbox")
 	})
 	run("concurrent_reaction_unique", func(t *testing.T) {
 		var wg sync.WaitGroup
