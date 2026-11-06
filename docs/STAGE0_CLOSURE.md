@@ -37,13 +37,35 @@ subtest on a missing app-role DELETE grant; that was the single blocking defect 
 was fixed in 3bf55c0 before closure. Evidence log: `evidence/p1-backlog.md`.
 Moderation and privilege logs carry a P1 regression section for the same run.
 
+## S2 P2 closure
+
+| ID | Item | Evidence tier | Status |
+|---|---|---|---|
+| P2-1 | Ordered WebSocket payloads / replay cursor | CI run 42189122017, commit a2cd122 | CLOSED 2026-11-06 |
+| P2-2 | Meet-Safe trusted contacts + check-ins | CI run 42189122017, commit a2cd122 | CLOSED 2026-11-06 |
+| P2-3 | DSR 30-day grace + scheduled cross-store purge | CI run 42189122017, commit a2cd122 | CLOSED 2026-11-06 |
+| P2-5 | Aggregate-only analytics role | CI run 42189122017, commit a2cd122 | CLOSED 2026-11-06 (per-domain app split deferred) |
+| P2-4 | Media upload/purge/evidence escrow | — | open (vendor/residency decision recorded) |
+| P2-6 | k6 staging load harness | — | open (install/target decision recorded) |
+
+Run 42189122017 ("Verify Nexus") completed `success` for backend, mobile and
+graphql on head commit a2cd122, which contains all four P2 commits (`b2ce6f6`,
+`381b891`, `f702204`, `a2cd122`). Backend applied the ladder through version 11
+and ran the live race-detector suite, including `websocket_ordered_replay`,
+`meet_safe_trusted_contacts`, `meet_safe_checkin_flow`,
+`account_deletion_grace_and_purge` and `analytics_aggregate_only`. Evidence log:
+`evidence/p2-backlog.md`.
+
 ## Honest boundaries (unchanged)
 
 - **P0-3 is at-rest encryption, not E2EE.** The API holds the key and can decrypt. The shared `DATA_KEY` is not KMS-envelope encryption.
 - **DATA_KEY rotation is not supported yet.** There is no key-version column and no re-encryption migration; rotating the key breaks existing history. Documented in `docs/RUNBOOKS.md`.
 - P0-1 still does not physically split social↔dating inside the API tier (monolith cross-schema joins require broad `nexus_app` DML); deferred to service extraction.
 - P0-2's no-time-expiry limitation is now addressed by P1-1 (24h TTL + janitor tombstone), closed with CI run 42184447461.
+- **P2-1 replay is at-least-once, not exactly-once.** Outbox ids are assigned at INSERT, so a late-committing transaction can be missed until the client refetches; the 24h outbox window means old cursors get `replay_truncated`. The WS wire format changed from invalidation hints to payload frames.
+- **P2-3 erases hot database rows only.** Backups/WAL/PITR, evidence escrow, media objects and legal retention remain an S4/legal gate; the job needs the owner DSN and is batch-limited (100 accounts/run).
+- **P2-5 is an analytics role, not a warehouse.** The five security-definer views are aggregate-only (k>=5 for township/category cells) and owned by `nexus_owner`; per-domain application roles are still deferred to service extraction.
 
 ## Remaining P0
 
-None in the Stage 0/S2 backlog; P0-4 closed with CI run 42175902801 and the P1 queue closed with CI run 42184447461. External gates stay outside this backlog — independent pentest / security certification is an S4 gate, and moderation team staffing/SLA dispatch is an S4/S5 project-side gate. P0-4's own limits (brigade flag records suspicion rather than preventing the initial HIGH hold, thresholds are engineering defaults, appeals are CLI-only) are recorded in `evidence/p0-4-moderation.md`; P1 limits are in `evidence/p1-backlog.md`.
+None in the Stage 0/S2 backlog; P0-4 closed with CI run 42175902801 and the P1 queue closed with CI run 42184447461. Four of the six P2 items (P2-1, P2-2, P2-3, P2-5) closed with CI run 42189122017; P2-4 (media) and P2-6 (k6 staging) stay open and are not claimed. External gates stay outside this backlog — independent pentest / security certification is an S4 gate, and moderation team staffing/SLA dispatch is an S4/S5 project-side gate. P0-4's own limits (brigade flag records suspicion rather than preventing the initial HIGH hold, thresholds are engineering defaults, appeals are CLI-only) are recorded in `evidence/p0-4-moderation.md`; P1 limits are in `evidence/p1-backlog.md`; P2 limits are in `evidence/p2-backlog.md`.

@@ -21,17 +21,18 @@ refers to it.
 
 | ID | Item | Source gap | Status |
 |---|---|---|---|
-| P2-1 | Ordered WebSocket payloads / replay cursor across disconnects | READINESS 10, 11 | implemented, CI pending |
-| P2-2 | Meet-Safe trusted contacts and delayed check-in | READINESS D | implemented, CI pending |
-| P2-3 | DSR purge fan-out (30-day grace job, cross-store delete) | READINESS H, 12 | implemented, CI pending |
-| P2-4 | Media upload/purge/evidence escrow | READINESS B, F |
-| P2-5 | Per-domain app roles / analytics isolation prep | READINESS 4 | analytics role implemented, per-domain split deferred, CI pending |
-| P2-6 | k6 staging load harness and p95 measurement scripts | READINESS 10 |
+| P2-1 | Ordered WebSocket payloads / replay cursor across disconnects | READINESS 10, 11 | CLOSED — CI 42189122017 (a2cd122) |
+| P2-2 | Meet-Safe trusted contacts and delayed check-in | READINESS D | CLOSED — CI 42189122017 (a2cd122) |
+| P2-3 | DSR purge fan-out (30-day grace job, cross-store delete) | READINESS H, 12 | CLOSED — CI 42189122017 (a2cd122) |
+| P2-4 | Media upload/purge/evidence escrow | READINESS B, F | open — vendor/residency decision in `evidence/p2-backlog.md` |
+| P2-5 | Per-domain app roles / analytics isolation prep | READINESS 4 | CLOSED for aggregate analytics role — CI 42189122017 (a2cd122); per-domain app split deferred to service extraction |
+| P2-6 | k6 staging load harness and p95 measurement scripts | READINESS 10 | open — install/target decision in `evidence/p2-backlog.md` |
 
 P2 items are not claimed complete until each has its own evidence entry. Native
 builds, SMS vendor integration, KMS/attestation and independent pentest remain
 outside this queue (Stage 2 platform squads / Stage 4 external gate).
 
 P1 closure evidence: `evidence/p1-backlog.md` (CI run 42184447461, commit 3bf55c0,
-schema version 7). P2 status is tracked in the table above and in each item's
-evidence entry as it lands.
+schema version 7). P2 closure evidence: `evidence/p2-backlog.md` (CI run
+42189122017, commit a2cd122, schema version 11) for P2-1/P2-2/P2-3/P2-5; P2-4 and
+P2-6 stay open with the vendor/staging decisions recorded there.
