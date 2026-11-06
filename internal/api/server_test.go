@@ -74,6 +74,56 @@ func TestConfigurationFailClosed(t *testing.T) {
 		t.Fatal("reused secrets")
 	}
 }
+func TestEnvConfigDefaultsAndOverrides(t *testing.T) {
+	for _, k := range []string{"APP_ENV", "LISTEN_ADDR", "REDIS_URL", "ALLOWED_ORIGIN"} {
+		t.Setenv(k, "")
+	}
+	c := EnvConfig()
+	if c.Env != "development" || c.Addr != ":8080" || c.RedisURL != "redis://localhost:6379/0" || c.Origin != "http://localhost:3000" {
+		t.Fatalf("defaults: %+v", c)
+	}
+	t.Setenv("APP_ENV", "staging")
+	t.Setenv("LISTEN_ADDR", ":9090")
+	t.Setenv("REDIS_URL", "redis://example:6379/1")
+	t.Setenv("ALLOWED_ORIGIN", "https://app.example")
+	t.Setenv("DATABASE_URL", "postgres://db/nexus")
+	t.Setenv("JWT_SECRET", strings.Repeat("j", 40))
+	t.Setenv("DATA_KEY", strings.Repeat("d", 40))
+	t.Setenv("OTP_SECRET", strings.Repeat("o", 40))
+	t.Setenv("SMS_URL", "https://sms.example")
+	t.Setenv("SMS_TOKEN", "token")
+	c = EnvConfig()
+	if c.Env != "staging" || c.Addr != ":9090" || c.DatabaseURL != "postgres://db/nexus" || c.SMSURL != "https://sms.example" {
+		t.Fatalf("overrides: %+v", c)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("valid staging config rejected: %v", err)
+	}
+}
+func TestConfigurationValidationBranches(t *testing.T) {
+	base := func() Config {
+		return Config{Env: "test", DatabaseURL: "postgres://localhost/nexus_test", JWTSecret: strings.Repeat("a", 32), DataKey: strings.Repeat("b", 32), OTPSecret: strings.Repeat("c", 32)}
+	}
+	for name, mutate := range map[string]func(*Config){
+		"invalid_env":    func(c *Config) { c.Env = "qa" },
+		"short_secret":   func(c *Config) { c.OTPSecret = "short" },
+		"missing_db":     func(c *Config) { c.DatabaseURL = "" },
+		"staging_no_sms": func(c *Config) { c.Env = "staging" },
+		"insecure_sms":   func(c *Config) { c.Env = "staging"; c.SMSURL = "http://sms.example"; c.SMSToken = "t" },
+		"dev_secret_used": func(c *Config) {
+			c.Env = "staging"
+			c.SMSURL = "https://sms.example"
+			c.SMSToken = "t"
+			c.JWTSecret = strings.Repeat("development", 5)
+		},
+	} {
+		c := base()
+		mutate(&c)
+		if c.Validate() == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+}
 func TestPhoneValidation(t *testing.T) {
 	for _, v := range []string{"+959123456789", "+66812345678"} {
 		if !phonePattern.MatchString(v) {
@@ -96,6 +146,26 @@ func TestDecodeStrict(t *testing.T) {
 		if decode(w, r, &b) == nil {
 			t.Fatalf("accepted %s", body)
 		}
+	}
+}
+
+func TestNewRejectsInvalidConfig(t *testing.T) {
+	if _, err := New(context.Background(), Config{}); err == nil {
+		t.Fatal("invalid config accepted")
+	}
+	cfg := Config{Env: "test", DatabaseURL: "postgres://localhost/nexus_test", RedisURL: "://bad", JWTSecret: strings.Repeat("a", 32), DataKey: strings.Repeat("b", 32), OTPSecret: strings.Repeat("c", 32)}
+	if _, err := New(context.Background(), cfg); err == nil {
+		t.Fatal("invalid redis url accepted")
+	}
+}
+func TestPurgeFailsWithoutDatabase(t *testing.T) {
+	p, err := pgxpool.New(context.Background(), "postgres://nexus:pw@127.0.0.1:1/nexus_test?connect_timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if _, err = retention.PurgeDue(context.Background(), p); err == nil {
+		t.Fatal("purge succeeded without database")
 	}
 }
 
@@ -417,6 +487,8 @@ func TestIntegration(t *testing.T) {
 		f.exec("DELETE FROM social.friendships")
 	})
 	run("websocket_single_use_ticket", func(t *testing.T) {
+		f.expect(-1, "GET", "/v1/ws?ticket=short", nil, 401)
+		f.expect(-1, "GET", "/v1/ws?ticket="+strings.Repeat("a", 64), nil, 401)
 		d := f.expect(0, "POST", "/v1/realtime/ticket", DataMap{}, 201)
 		url := "ws" + strings.TrimPrefix(f.ts.URL, "http") + "/v1/ws?ticket=" + d["ticket"].(string)
 		c, _, err := websocket.DefaultDialer.Dial(url, nil)
@@ -847,6 +919,7 @@ func TestIntegration(t *testing.T) {
 		f.exec("UPDATE identity.accounts SET ghost=false WHERE id=$1", f.users[8])
 		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": f.users[1], "label": "Sister"}, 201)
 		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": f.users[1], "label": "Elder sister"}, 201)
+		f.expect(0, "POST", "/v1/safety/trusted-contacts", DataMap{"user_id": uuid.NewString(), "label": "Missing"}, 404)
 		items := f.expect(0, "GET", "/v1/safety/trusted-contacts", nil, 200)["items"].([]any)
 		if len(items) != 1 || items[0].(map[string]any)["label"] != "Elder sister" || items[0].(map[string]any)["real_name"] != "Social Person 1" {
 			t.Fatalf("trusted contact upsert failed: %v", items)
@@ -864,11 +937,18 @@ func TestIntegration(t *testing.T) {
 		f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Kandawgyi", "minutes": 1}, 400)
 		f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": " ", "minutes": 60}, 400)
 		f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Kandawgyi", "minutes": 60, "event_id": uuid.NewString()}, 400)
+		f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Kandawgyi", "minutes": 60, "event_id": "bad"}, 400)
 		d := f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Kandawgyi", "minutes": 60}, 201)
 		id := d["id"].(string)
 		if d["status"] != "PENDING" {
 			t.Fatal(d)
 		}
+		for i := 0; i < 4; i++ {
+			f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "Open check-in", "minutes": 60}, 201)
+		}
+		f.expect(0, "POST", "/v1/safety/checkins", DataMap{"place_label": "One too many", "minutes": 60}, 409)
+		f.expect(0, "POST", "/v1/safety/checkins/"+uuid.NewString()+"/confirm", DataMap{}, 404)
+		f.exec("DELETE FROM safety.checkins WHERE user_id=$1 AND place_label='Open check-in'", f.users[0])
 		if n := len(f.expect(2, "GET", "/v1/safety/checkins?role=contact", nil, 200)["items"].([]any)); n != 1 {
 			t.Fatalf("contact cannot see check-in: %d", n)
 		}
@@ -995,6 +1075,24 @@ func TestIntegration(t *testing.T) {
 			t.Fatal("recent searches not cleared")
 		}
 		f.exec("DELETE FROM social.posts WHERE body='CursorFixture'")
+		var extra []string
+		for i := 0; i < 12; i++ {
+			id := uuid.NewString()
+			f.exec(`INSERT INTO identity.accounts(id,phone_hash,phone_cipher,dob,phone_verified,tier) VALUES($1,$2,pgp_sym_encrypt('private',$3),'1997-01-01',true,1)`, id, "pagesearch"+uuid.NewString(), cfg.DataKey)
+			f.exec(`INSERT INTO social.user_profiles(user_id,real_name,township,bio) VALUES($1,$2,'kamayut','Pagination bio')`, id, fmt.Sprintf("Social Person P%d", i))
+			extra = append(extra, id)
+		}
+		d = f.expect(1, "GET", "/v1/search?type=people&q=Social%20Person", nil, 200)
+		if len(d["items"].([]any)) != 20 || d["next_cursor"] == nil {
+			t.Fatalf("people first page: %d %v", len(d["items"].([]any)), d["next_cursor"])
+		}
+		d = f.expect(1, "GET", "/v1/search?type=people&q=Social%20Person&cursor="+d["next_cursor"].(string), nil, 200)
+		if len(d["items"].([]any)) != 1 || d["next_cursor"] != nil {
+			t.Fatalf("people second page: %v", d)
+		}
+		for _, id := range extra {
+			f.exec("DELETE FROM identity.accounts WHERE id=$1", id)
+		}
 	})
 	run("notifications_and_sessions_ownership", func(t *testing.T) {
 		d := f.expect(5, "GET", "/v1/notifications", nil, 200)
@@ -1038,14 +1136,159 @@ func TestIntegration(t *testing.T) {
 			{"POST", "/v1/actions/swipe", DataMap{}, 400}, {"POST", "/v1/location", DataMap{}, 400},
 			{"POST", "/v1/posts/" + post + "/reactions", DataMap{}, 400}, {"POST", "/v1/posts/" + post + "/comments", DataMap{}, 400},
 			{"POST", "/v1/posts/" + post + "/shares", DataMap{}, 400}, {"POST", "/v1/chats/" + room + "/messages", DataMap{}, 400},
+			{"POST", "/v1/chats/bad/messages", DataMap{"text": "x", "mode": "NORMAL", "client_id": uuid.NewString()}, 400},
+			{"POST", "/v1/chats/" + room + "/messages", DataMap{"text": "x", "mode": "BAD", "client_id": uuid.NewString()}, 400},
+			{"POST", "/v1/chats/" + room + "/read", DataMap{"through_seq": 0}, 400},
+			{"GET", "/v1/chats/bad/messages", nil, 400},
+			{"POST", "/v1/events/bad/rsvp", DataMap{"status": "ATTEND"}, 400},
+			{"POST", "/v1/groups/bad/join", DataMap{}, 400},
 			{"GET", "/v1/events?township=kamayut", nil, 200}, {"GET", "/v1/notifications?category=invalid", nil, 400},
 			{"GET", "/v1/posts/bad/comments", nil, 400}, {"GET", "/v1/radar/blips/bad", nil, 404},
 			{"GET", "/v1/lookaround?band=3km&township=kamayut", nil, 200},
+			{"POST", "/v1/auth/refresh", DataMap{"refresh_token": "short"}, 401},
+			{"POST", "/v1/auth/refresh", DataMap{"refresh_token": strings.Repeat("x", 64)}, 401},
+			{"DELETE", "/v1/auth/sessions/bad", nil, 400},
+			{"POST", "/v1/auth/otp/verify", DataMap{"challenge_id": uuid.NewString(), "code": "123456", "dob": "1990-01-01", "device": "probe"}, 401},
+			{"POST", "/v1/actions/swipe", DataMap{"profile_id": uuid.NewString(), "intent": "LIKE"}, 404},
+			{"POST", "/v1/events/" + uuid.NewString() + "/rsvp", DataMap{"status": "ATTEND"}, 404},
+			{"POST", "/v1/groups/" + uuid.NewString() + "/join", DataMap{}, 200},
+			{"POST", "/v1/safety/capture-alert", DataMap{"room_id": uuid.NewString(), "kind": "RECORDING"}, 404},
 		}
 		// Ghost mode already reset, but its radar timer remains disabled by design.
 		for _, v := range cases {
 			f.expect(5, v.method, v.path, v.b, v.status)
 		}
+	})
+	run("safety_reports_blocks_and_notifications", func(t *testing.T) {
+		f.exec("DELETE FROM safety.reports WHERE reporter=$1", f.users[2])
+		out := f.expect(2, "POST", "/v1/safety/report", DataMap{"target_id": f.users[3], "category": "SCAM", "details": "listing fixture"}, 202)
+		if out["severity"] != "MEDIUM" || out["response_due_minutes"] != float64(120) {
+			t.Fatalf("report defaults: %v", out)
+		}
+		if n := len(f.expect(2, "GET", "/v1/safety/reports", nil, 200)["items"].([]any)); n != 1 {
+			t.Fatalf("report listing: %d", n)
+		}
+		if n := len(f.expect(2, "GET", "/v1/safety/blocks", nil, 200)["items"].([]any)); n != 1 {
+			t.Fatalf("report must hide the pair: %d", n)
+		}
+		f.expect(2, "POST", "/v1/safety/report", DataMap{"profile_id": f.profiles[4], "category": "HARASSMENT", "details": "by profile"}, 202)
+		f.expect(2, "POST", "/v1/safety/report", DataMap{"target_id": f.users[2], "category": "SCAM", "details": "self"}, 400)
+		f.expect(2, "POST", "/v1/safety/report", DataMap{"target_id": uuid.NewString(), "category": "SCAM", "details": "unknown"}, 404)
+		f.expect(2, "POST", "/v1/safety/report", DataMap{"profile_id": "not-a-uuid", "category": "SCAM", "details": "bad"}, 400)
+		f.expect(2, "POST", "/v1/safety/report", DataMap{"profile_id": uuid.NewString(), "category": "SCAM", "details": "absent"}, 404)
+		f.expect(2, "POST", "/v1/safety/report", DataMap{"target_id": f.users[3], "category": "NOPE", "details": "bad"}, 400)
+		f.expect(2, "POST", "/v1/safety/report", DataMap{"target_id": f.users[3], "category": "OTHER", "details": "  "}, 400)
+
+		if b := f.expect(2, "POST", "/v1/safety/block", DataMap{"target_id": f.users[5]}, 200); b["blocked"] != true {
+			t.Fatalf("first block: %v", b)
+		}
+		if b := f.expect(2, "POST", "/v1/safety/block", DataMap{"target_id": f.users[5]}, 200); b["blocked"] != false {
+			t.Fatalf("duplicate block: %v", b)
+		}
+		f.expect(2, "POST", "/v1/safety/block", DataMap{"target_id": f.users[2]}, 400)
+		f.expect(2, "POST", "/v1/safety/block", DataMap{"profile_id": "bad"}, 400)
+		f.expect(2, "POST", "/v1/safety/block", DataMap{"profile_id": uuid.NewString()}, 404)
+		f.expect(2, "POST", "/v1/safety/block", DataMap{"profile_id": f.profiles[7]}, 200)
+		f.expect(2, "DELETE", "/v1/safety/blocks/"+f.users[5], nil, 204)
+		f.expect(2, "DELETE", "/v1/safety/blocks/bad", nil, 400)
+
+		d := f.expect(2, "GET", "/v1/notifications?category=SAFETY", nil, 200)
+		list := d["items"].([]any)
+		if len(list) < 1 {
+			t.Fatalf("report notification missing: %v", d)
+		}
+		nid := list[0].(map[string]any)["id"].(string)
+		f.expect(2, "POST", "/v1/notifications/"+nid+"/read", DataMap{}, 204)
+		var read bool
+		if err := f.boot.QueryRow(context.Background(), `SELECT read_at IS NOT NULL FROM social.notifications WHERE id=$1`, nid).Scan(&read); err != nil || !read {
+			t.Fatalf("read_at not set: %v", err)
+		}
+		f.expect(2, "POST", "/v1/notifications/"+uuid.NewString()+"/read", DataMap{}, 204)
+		f.expect(2, "GET", "/v1/notifications?category=FOLLOW", nil, 200)
+		f.expect(2, "GET", "/v1/notifications?category=ACTIVITY", nil, 200)
+
+		f.exec("DELETE FROM safety.reports WHERE reporter=$1", f.users[2])
+		f.exec("DELETE FROM safety.blocks WHERE user_id=$1 OR target_id=$1", f.users[2])
+		f.exec("DELETE FROM social.notifications WHERE user_id=$1", f.users[2])
+	})
+	run("comments_listing", func(t *testing.T) {
+		d := f.expect(2, "GET", "/v1/posts/"+post+"/comments", nil, 200)
+		items := d["items"].([]any)
+		if len(items) != 2 || items[0].(map[string]any)["body"] != "Root" {
+			t.Fatalf("comments listing: %v", d)
+		}
+	})
+	run("chat_history_paging", func(t *testing.T) {
+		rid := uuid.NewString()
+		f.exec("INSERT INTO chat.rooms(id,kind) VALUES($1,'SOCIAL')", rid)
+		f.exec("INSERT INTO chat.members(room_id,user_id) VALUES($1,$2),($1,$3)", rid, f.users[0], f.users[1])
+		for n := 1; n <= 51; n++ {
+			f.exec("INSERT INTO chat.messages(room_id,sender,body_cipher,mode,client_id) VALUES($1,$2,pgp_sym_encrypt($3,$4),'NORMAL',$5)", rid, f.users[0], fmt.Sprintf("page %d", n), cfg.DataKey, uuid.NewString())
+		}
+		d := f.expect(0, "GET", "/v1/chats/"+rid+"/messages", nil, 200)
+		items := d["items"].([]any)
+		if len(items) != 50 || d["next_before_seq"] == nil {
+			t.Fatalf("first page: %d %v", len(items), d["next_before_seq"])
+		}
+		oldest := int64(items[0].(map[string]any)["seq"].(float64))
+		if newest := int64(items[49].(map[string]any)["seq"].(float64)); newest <= oldest {
+			t.Fatalf("ordering: %v", items)
+		}
+		d = f.expect(0, "GET", "/v1/chats/"+rid+"/messages?before_seq="+strconv.FormatInt(oldest, 10), nil, 200)
+		if len(d["items"].([]any)) != 1 || d["next_before_seq"] != nil {
+			t.Fatalf("tail page: %v", d)
+		}
+		f.expect(0, "GET", "/v1/chats/"+rid+"/messages?before_seq=0", nil, 400)
+		f.expect(0, "GET", "/v1/chats/"+rid+"/messages?before_seq=nope", nil, 400)
+	})
+	run("cors_and_security_headers", func(t *testing.T) {
+		get := func(origin, method string) *http.Response {
+			r, _ := http.NewRequest(method, f.ts.URL+"/health/live", nil)
+			if origin != "" {
+				r.Header.Set("Origin", origin)
+			}
+			res, err := http.DefaultClient.Do(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res.Body.Close()
+			return res
+		}
+		res := get("http://localhost:3000", "GET")
+		if res.StatusCode != 200 || res.Header.Get("Access-Control-Allow-Origin") != "http://localhost:3000" || res.Header.Get("X-Content-Type-Options") != "nosniff" || res.Header.Get("Cache-Control") != "no-store" {
+			t.Fatalf("cors headers: %d %v", res.StatusCode, res.Header)
+		}
+		if res = get("http://evil.example", "GET"); res.StatusCode != 403 {
+			t.Fatalf("origin not denied: %d", res.StatusCode)
+		}
+		if res = get("http://localhost:3000", "OPTIONS"); res.StatusCode != 204 || res.Header.Get("Access-Control-Allow-Methods") == "" {
+			t.Fatalf("preflight: %d %v", res.StatusCode, res.Header)
+		}
+	})
+	run("staging_sms_adapter_fail_closed", func(t *testing.T) {
+		// A staging server must call the HTTPS SMS adapter; an unreachable or
+		// untrusted adapter fails closed instead of silently issuing a code.
+		sms := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+		defer sms.Close()
+		cfg2 := cfg
+		cfg2.Env = "staging"
+		cfg2.SMSURL = sms.URL
+		cfg2.SMSToken = "probe-token"
+		s2 := &Server{DB: s.DB, Redis: s.Redis, Cfg: cfg2, mux: http.NewServeMux()}
+		s2.routes()
+		ts2 := httptest.NewServer(s2.Handler())
+		defer ts2.Close()
+		phone := "+959111111111"
+		r, _ := http.NewRequest("POST", ts2.URL+"/v1/auth/otp/request", strings.NewReader(`{"phone":"`+phone+`"}`))
+		res, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != 503 {
+			t.Fatalf("SMS failure must fail closed: %d", res.StatusCode)
+		}
+		f.exec("DELETE FROM identity.otp WHERE phone_hash=$1", keyed(cfg.OTPSecret, phone))
 	})
 	run("otp_attempts_cannot_be_bruteforced", func(t *testing.T) {
 		ch := f.expect(-1, "POST", "/v1/auth/otp/request", DataMap{"phone": "+66876543210"}, 202)
@@ -1172,6 +1415,49 @@ func TestIntegration(t *testing.T) {
 		}
 		if _, err = moderation.Decide(ctx, mod, rA, "post", postID, "LIVE"); err != nil {
 			t.Fatalf("decision after rotation reset: %v", err)
+		}
+		if _, err = moderation.Authenticate(ctx, mod, "", ""); !errors.Is(err, moderation.ErrInvalidCredentials) {
+			t.Fatalf("empty credentials: want ErrInvalidCredentials, got %v", err)
+		}
+		if _, err = moderation.Authenticate(ctx, mod, "nobody-"+suffix, password); !errors.Is(err, moderation.ErrInvalidCredentials) {
+			t.Fatalf("unknown reviewer: want ErrInvalidCredentials, got %v", err)
+		}
+		for _, bad := range []struct{ name, role, pw string }{{"ab", "MODERATOR", password}, {nameA, "ADMIN", password}, {nameA, "MODERATOR", "short"}} {
+			if _, err = moderation.CreateReviewer(ctx, f.boot, bad.name, bad.role, bad.pw); !errors.Is(err, moderation.ErrInvalidInput) {
+				t.Fatalf("bad reviewer %+v: want ErrInvalidInput, got %v", bad, err)
+			}
+		}
+		if _, err = moderation.CreateReviewer(ctx, f.boot, nameA, "MODERATOR", password); !errors.Is(err, moderation.ErrExists) {
+			t.Fatalf("duplicate reviewer: want ErrExists, got %v", err)
+		}
+		if err = moderation.SetReviewerActive(ctx, f.boot, "", true); !errors.Is(err, moderation.ErrInvalidInput) {
+			t.Fatalf("empty reviewer id: want ErrInvalidInput, got %v", err)
+		}
+		if err = moderation.SetReviewerActive(ctx, f.boot, "no-such-"+suffix, true); !errors.Is(err, moderation.ErrResourceNotFound) {
+			t.Fatalf("unknown reviewer id: want ErrResourceNotFound, got %v", err)
+		}
+		for _, bad := range []struct{ kind, resource, decision string }{{"group", postID, "LIVE"}, {"post", postID, "DELETED"}, {"post", "not-a-uuid", "LIVE"}} {
+			if _, err = moderation.Decide(ctx, mod, rA, bad.kind, bad.resource, bad.decision); !errors.Is(err, moderation.ErrInvalidInput) {
+				t.Fatalf("bad decision %+v: want ErrInvalidInput, got %v", bad, err)
+			}
+		}
+		if _, err = moderation.Decide(ctx, mod, rA, "post", uuid.NewString(), "LIVE"); !errors.Is(err, moderation.ErrResourceNotFound) {
+			t.Fatalf("missing resource: want ErrResourceNotFound, got %v", err)
+		}
+		if err = moderation.ReviewAppeal(ctx, mod, rB, "not-a-uuid", "UPHELD"); !errors.Is(err, moderation.ErrInvalidInput) {
+			t.Fatalf("bad appeal id: want ErrInvalidInput, got %v", err)
+		}
+		if err = moderation.ReviewAppeal(ctx, mod, rB, uuid.NewString(), "OVERTURNED"); !errors.Is(err, moderation.ErrAppealNotFound) {
+			t.Fatalf("missing appeal: want ErrAppealNotFound, got %v", err)
+		}
+		if err = moderation.SetReviewerActive(ctx, f.boot, nameB, false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = moderation.Decide(ctx, mod, rB, "post", postID, "REMOVED"); !errors.Is(err, moderation.ErrInvalidCredentials) {
+			t.Fatalf("disabled reviewer decision: want ErrInvalidCredentials, got %v", err)
+		}
+		if err = moderation.SetReviewerActive(ctx, f.boot, nameB, true); err != nil {
+			t.Fatal(err)
 		}
 	})
 }

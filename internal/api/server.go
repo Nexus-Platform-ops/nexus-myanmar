@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -363,10 +362,4 @@ func contains(a []string, b string) bool {
 		}
 	}
 	return false
-}
-func closeRows(err error) error {
-	if err != nil {
-		return fmt.Errorf("database operation: %w", err)
-	}
-	return nil
 }

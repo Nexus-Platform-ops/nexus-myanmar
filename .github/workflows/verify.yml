@@ -36,6 +36,12 @@ jobs:
       - run: go run ./cmd/migrate
       - run: test -z "$(gofmt -l cmd internal)"
       - run: go vet ./... && go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: Coverage gate (API package >= 80%)
+        run: |
+          go test -count=1 -coverprofile=coverage-api.out ./internal/api
+          go tool cover -func=coverage-api.out | tail -1
+          pct=$(go tool cover -func=coverage-api.out | tail -1 | awk '{print $3}' | tr -d '%')
+          awk -v p="$pct" 'BEGIN { if (p + 0 < 80) { printf "coverage %s%% < 80%%\n", p; exit 1 } }'
       - run: go build ./cmd/...
       - run: python3 scripts/guardrails.py
   mobile:
@@ -46,7 +52,11 @@ jobs:
         with: {flutter-version: '3.47.9', channel: stable, cache: true}
       - run: flutter pub get
         working-directory: apps/mobile
-      - run: dart format --output=none --set-exit-if-changed lib test && flutter analyze --fatal-infos && flutter test --timeout 45s
+      - run: dart format --output=none --set-exit-if-changed lib test && flutter analyze --fatal-infos && flutter test --coverage --timeout 45s
+        working-directory: apps/mobile
+      - name: Coverage gate (mobile lines >= 80%)
+        run: |
+          awk -F'[:,]' '/^DA:/{t++; if ($3 > 0) h++} END { printf "mobile line coverage %.2f%% (%d/%d)\n", 100*h/t, h, t; exit (100*h/t >= 80) ? 0 : 1 }' coverage/lcov.info
         working-directory: apps/mobile
       - run: flutter build web --release --no-wasm-dry-run --dart-define=API_BASE=https://api.nexus.example
         working-directory: apps/mobile
