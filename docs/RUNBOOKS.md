@@ -10,7 +10,26 @@ Stop accepting new Whisper messages, keep normal chat separately gated, investig
 Redis unavailable: fail auth abuse controls/tickets closed; do not bypass OTP/probe limits. PostgreSQL unavailable: readiness 503; live health can remain alive. This baseline has no replicated store or cached-read failover. Source-proposed Redis-GEO/PostGIS fallback and AI-rule fallback need implementation before claiming graceful degradation.
 
 ## Moderation queue / high-risk accounts
-Posts/comments/events fail closed under review. Trusted CLI decisions are intended only for synthetic/test content until named operator authentication, appeals and staffed queue routing exist. HIGH reports immediately hold exposure: add anti-brigading and authorized review tooling before live use. Never auto-clear restrictions on a timeout.
+Posts/comments/events fail closed under review. HIGH reports immediately hold exposure. P0-4 adds named reviewer authentication, an appeal review path, a 5/day reporter cap, a 100-decision reviewer rotation cap and coordinated-report flagging, but staffed queue routing and SLA dispatch remain project-side S4/S5 work. Never auto-clear restrictions on a timeout.
+
+## Named reviewer operations (006_moderation)
+Reviewers are rows in `safety.reviewers` with a bcrypt password hash, role `MODERATOR`/`SENIOR`, and an `active` flag. Provisioning uses the bootstrap DSN, which is deliberately not available to the moderator binary:
+
+```sh
+ADMIN_DATABASE_URL=postgres://nexus:...@host/nexus REVIEWER_PASSWORD='...' \
+  moderate reviewer add alice MODERATOR
+ADMIN_DATABASE_URL=postgres://nexus:...@host/nexus moderate reviewer disable alice
+```
+
+Every content decision is made as a named reviewer. The CLI refuses decisions once that reviewer reaches 100 logged decisions; create/rotate another named reviewer rather than raising the constant ad hoc:
+
+```sh
+REVIEWER_NAME=alice REVIEWER_PASSWORD='...' moderate post <uuid> REMOVED
+REVIEWER_NAME=alice REVIEWER_PASSWORD='...' moderate appeal <appeal-uuid> OVERTURNED
+```
+
+`safety.audit.actor` records the reviewer_id for `MODERATE_*` and `APPEAL_*` rows. The moderator role can read `safety.reviewers` and update only `decisions_count`; it cannot create reviewers or change password hashes. A reviewer cannot decide an appeal on their own decision. Overturning a `MODERATE_*_REMOVED` decision restores the content to `LIVE`. Do not rotate a reviewer by deleting rows — disable them, so audit attribution survives.
+
 
 ## Backups and disaster recovery
 Production target is source RPO15min/RTO1h, but not demonstrated. Provision encrypted database storage/backups, private access and region controls. Rehearse restore to a new isolated stack, verify schema/session revocation/Whisper retention behavior, replay only safe content-free events, and collect timed recovery evidence. A local Compose volume is not a backup strategy.

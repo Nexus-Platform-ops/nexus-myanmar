@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"nexus/internal/moderation"
 )
 
 func TestAdultBoundary(t *testing.T) {
@@ -155,6 +158,13 @@ func (f *fixture) expect(i int, method, path string, body any, want int) DataMap
 func (f *fixture) exec(q string, args ...any) {
 	f.t.Helper()
 	if _, err := f.s.DB.Exec(context.Background(), q, args...); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func (f *fixture) bootExec(q string, args ...any) {
+	f.t.Helper()
+	if _, err := f.boot.Exec(context.Background(), q, args...); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -445,6 +455,60 @@ func TestIntegration(t *testing.T) {
 		f.exec("DELETE FROM safety.blocks")
 		f.exec("UPDATE identity.accounts SET restricted=false WHERE id=$1", f.users[8])
 	})
+	run("report_daily_cap", func(t *testing.T) {
+		for i := 0; i < 5; i++ {
+			f.expect(5, "POST", "/v1/safety/report", DataMap{"target_id": f.users[6], "category": "OTHER", "details": "daily cap probe"}, 202)
+		}
+		f.expect(5, "POST", "/v1/safety/report", DataMap{"target_id": f.users[6], "category": "OTHER", "details": "daily cap probe"}, 429)
+		f.exec("DELETE FROM safety.reports WHERE reporter=$1", f.users[5])
+		f.exec("DELETE FROM safety.blocks WHERE user_id=$1", f.users[5])
+		f.exec("DELETE FROM social.notifications WHERE user_id=$1", f.users[5])
+		f.bootExec("DELETE FROM safety.brigade_flags WHERE target_id=$1", f.users[6])
+	})
+	run("coordinated_report_flag", func(t *testing.T) {
+		// reporter 7 already reported target 8 in report_high_lock; four more
+		// distinct reporters cross the five-reporter threshold.
+		for i := 0; i < 4; i++ {
+			f.expect(i, "POST", "/v1/safety/report", DataMap{"target_id": f.users[8], "category": "OTHER", "details": "coordinated probe"}, 202)
+		}
+		var reporters int
+		if err := f.boot.QueryRow(context.Background(), `SELECT reporters FROM safety.brigade_flags WHERE target_id=$1`, f.users[8]).Scan(&reporters); err != nil {
+			t.Fatal(err)
+		}
+		if reporters < 5 {
+			t.Fatalf("brigade flag reporters=%d", reporters)
+		}
+		f.exec("DELETE FROM safety.reports WHERE target_id=$1", f.users[8])
+		f.exec("DELETE FROM safety.blocks WHERE target_id=$1", f.users[8])
+		f.exec("DELETE FROM social.notifications WHERE user_id IN($1,$2,$3,$4,$5)", f.users[7], f.users[0], f.users[1], f.users[2], f.users[3])
+		f.bootExec("DELETE FROM safety.brigade_flags WHERE target_id=$1", f.users[8])
+	})
+	run("appeal_workflow", func(t *testing.T) {
+		postID := uuid.NewString()
+		f.exec(`INSERT INTO social.posts(id,author,body,township,audience,status) VALUES($1,$2,'appeal fixture','kamayut','PUBLIC','REMOVED')`, postID, f.users[0])
+		var decision, live int64
+		if err := f.boot.QueryRow(context.Background(), `INSERT INTO safety.audit(action,resource_id) VALUES('MODERATE_post_REMOVED',$1) RETURNING id`, postID).Scan(&decision); err != nil {
+			t.Fatal(err)
+		}
+		out := f.expect(0, "POST", "/v1/safety/appeals", DataMap{"decision_id": decision, "reason": "This removal was mistaken"}, 201)
+		if out["status"] != "OPEN" {
+			t.Fatal(out)
+		}
+		f.expect(0, "POST", "/v1/safety/appeals", DataMap{"decision_id": decision, "reason": "This removal was mistaken"}, 409)
+		f.expect(1, "POST", "/v1/safety/appeals", DataMap{"decision_id": decision, "reason": "This removal was mistaken"}, 404)
+		f.expect(0, "POST", "/v1/safety/appeals", DataMap{"decision_id": decision, "reason": "short"}, 400)
+		list := f.expect(0, "GET", "/v1/safety/appeals", nil, 200)
+		if len(list["items"].([]any)) != 1 {
+			t.Fatal(list)
+		}
+		if err := f.boot.QueryRow(context.Background(), `INSERT INTO safety.audit(action,resource_id) VALUES('MODERATE_post_LIVE',$1) RETURNING id`, postID).Scan(&live); err != nil {
+			t.Fatal(err)
+		}
+		f.expect(0, "POST", "/v1/safety/appeals", DataMap{"decision_id": live, "reason": "This restoration was mistaken"}, 404)
+		f.bootExec("DELETE FROM safety.appeals WHERE decision_id=$1", decision)
+		f.exec("DELETE FROM safety.audit WHERE id IN($1,$2)", decision, live)
+		f.exec("DELETE FROM social.posts WHERE id=$1", postID)
+	})
 	run("ghost_hides_and_locks", func(t *testing.T) {
 		f.expect(6, "POST", "/v1/safety/ghost", DataMap{"enabled": true}, 200)
 		f.expect(6, "POST", "/v1/chats/"+room+"/messages", DataMap{"text": "No", "mode": "NORMAL", "client_id": uuid.NewString()}, 403)
@@ -636,5 +700,105 @@ func TestIntegration(t *testing.T) {
 		f.expect(8, "DELETE", "/v1/account", DataMap{"confirm": "no"}, 400)
 		f.expect(8, "DELETE", "/v1/account", DataMap{"confirm": "DELETE MY ACCOUNT"}, 204)
 		f.expect(8, "GET", "/v1/profile", nil, 401)
+	})
+	run("moderation_named_reviewer_and_appeals", func(t *testing.T) {
+		ctx := context.Background()
+		modDSN := os.Getenv("TEST_MODERATOR_DATABASE_URL")
+		if modDSN == "" {
+			modDSN = "postgres://nexus_moderator:nexus_mod_ci_only_pw1@localhost:5432/nexus_test?sslmode=disable"
+		}
+		if !strings.Contains(modDSN, "/nexus_test?") {
+			t.Fatal("refusing moderator fixtures outside nexus_test")
+		}
+		mod, err := pgxpool.New(ctx, modDSN)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer mod.Close()
+		suffix := uuid.NewString()[:8]
+		nameA, nameB := "rev-a-"+suffix, "rev-b-"+suffix
+		password := "reviewer-pass-123"
+		postID := uuid.NewString()
+		appeal := uuid.NewString()
+		f.bootExec(`INSERT INTO social.posts(id,author,body,township,audience,status) VALUES($1,$2,'moderation fixture','kamayut','PUBLIC','UNDER_REVIEW')`, postID, f.users[0])
+		idA, err := moderation.CreateReviewer(ctx, f.boot, nameA, "MODERATOR", password)
+		if err != nil {
+			t.Fatal(err)
+		}
+		idB, err := moderation.CreateReviewer(ctx, f.boot, nameB, "SENIOR", password)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			f.bootExec(`DELETE FROM safety.audit WHERE actor=$1 OR actor=$2 OR resource_id=$1 OR resource_id=$2 OR resource_id=$3 OR resource_id=$4`, idA, idB, postID, appeal)
+			f.bootExec(`DELETE FROM safety.reviewers WHERE reviewer_id=$1 OR reviewer_id=$2`, idA, idB)
+			f.bootExec(`DELETE FROM social.posts WHERE id=$1`, postID)
+		}()
+		var audited int
+		if err = f.boot.QueryRow(ctx, `SELECT count(*) FROM safety.audit WHERE action='REVIEWER_ADDED' AND resource_id=$1`, idA).Scan(&audited); err != nil || audited != 1 {
+			t.Fatalf("reviewer creation not audited: n=%d err=%v", audited, err)
+		}
+		if _, err = moderation.Authenticate(ctx, mod, nameA, "wrong-password-123"); !errors.Is(err, moderation.ErrInvalidCredentials) {
+			t.Fatalf("wrong password: want ErrInvalidCredentials, got %v", err)
+		}
+		if err = moderation.SetReviewerActive(ctx, f.boot, nameA, false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = moderation.Authenticate(ctx, mod, nameA, password); !errors.Is(err, moderation.ErrInvalidCredentials) {
+			t.Fatalf("inactive reviewer: want ErrInvalidCredentials, got %v", err)
+		}
+		if err = moderation.SetReviewerActive(ctx, f.boot, nameA, true); err != nil {
+			t.Fatal(err)
+		}
+		rA, err := moderation.Authenticate(ctx, mod, nameA, password)
+		if err != nil || rA.Role != "MODERATOR" || rA.ID != idA {
+			t.Fatalf("authenticate: %+v %v", rA, err)
+		}
+		decision, err := moderation.Decide(ctx, mod, rA, "post", postID, "REMOVED")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var status, actor string
+		if err = f.boot.QueryRow(ctx, `SELECT p.status,au.actor::text FROM social.posts p JOIN safety.audit au ON au.id=$2 WHERE p.id=$1`, postID, decision).Scan(&status, &actor); err != nil {
+			t.Fatal(err)
+		}
+		if status != "REMOVED" || actor != idA {
+			t.Fatalf("decision not attributed: status=%s actor=%s", status, actor)
+		}
+		if err = f.boot.QueryRow(ctx, `INSERT INTO safety.appeals(user_id,decision_id,reason) VALUES($1,$2,'This removal was mistaken') RETURNING appeal_id`, f.users[0], decision).Scan(&appeal); err != nil {
+			t.Fatal(err)
+		}
+		if err = moderation.ReviewAppeal(ctx, mod, rA, appeal, "UPHELD"); !errors.Is(err, moderation.ErrSelfReview) {
+			t.Fatalf("self review: want ErrSelfReview, got %v", err)
+		}
+		rB, err := moderation.Authenticate(ctx, mod, nameB, password)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = moderation.ReviewAppeal(ctx, mod, rB, appeal, "OVERTURNED"); err != nil {
+			t.Fatal(err)
+		}
+		var appealStatus, reviewedBy string
+		if err = f.boot.QueryRow(ctx, `SELECT a.status,a.reviewed_by::text,p.status FROM safety.appeals a JOIN social.posts p ON p.id=$2 WHERE a.appeal_id=$1`, appeal, postID).Scan(&appealStatus, &reviewedBy, &status); err != nil {
+			t.Fatal(err)
+		}
+		if appealStatus != "OVERTURNED" || reviewedBy != idB || status != "LIVE" {
+			t.Fatalf("overturn: appeal=%s reviewer=%s post=%s", appealStatus, reviewedBy, status)
+		}
+		if err = moderation.ReviewAppeal(ctx, mod, rB, appeal, "UPHELD"); !errors.Is(err, moderation.ErrAppealNotOpen) {
+			t.Fatalf("closed appeal: want ErrAppealNotOpen, got %v", err)
+		}
+		if _, err = f.boot.Exec(ctx, `UPDATE safety.reviewers SET decisions_count=$2 WHERE reviewer_id=$1`, idA, moderation.MaxDecisionsPerReviewer); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = moderation.Decide(ctx, mod, rA, "post", postID, "LIVE"); !errors.Is(err, moderation.ErrRotationRequired) {
+			t.Fatalf("rotation cap: want ErrRotationRequired, got %v", err)
+		}
+		if _, err = f.boot.Exec(ctx, `UPDATE safety.reviewers SET decisions_count=0 WHERE reviewer_id=$1`, idA); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = moderation.Decide(ctx, mod, rA, "post", postID, "LIVE"); err != nil {
+			t.Fatalf("decision after rotation reset: %v", err)
+		}
 	})
 }

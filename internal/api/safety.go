@@ -2,10 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (s *Server) notifications(w http.ResponseWriter, r *http.Request) error {
@@ -64,6 +67,13 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) error {
 	if !validID(b.Target) || b.Target == who(r).ID {
 		return fail(400, "invalid_target")
 	}
+	day, err := s.limit(r.Context(), "report-day:"+who(r).ID+":"+time.Now().UTC().Format("2006-01-02"), 5, 24*time.Hour)
+	if err != nil {
+		return err
+	}
+	if !day {
+		return fail(429, "report_daily_limit")
+	}
 	ok, err := s.limit(r.Context(), "report:"+who(r).ID, 10, time.Hour)
 	if err != nil {
 		return err
@@ -94,6 +104,22 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// Five distinct reporters within 24h is recorded for human review; volume
+	// alone never changes a decision.
+	flag, err := tx.Exec(r.Context(), `INSERT INTO safety.brigade_flags(target_id,reporters,reason)
+SELECT $1,count(DISTINCT reporter),'COORDINATED_REPORTING_24H' FROM safety.reports
+WHERE target_id=$1 AND created_at>now()-interval '24 hours'
+HAVING count(DISTINCT reporter)>=5
+ON CONFLICT (target_id) DO UPDATE SET reporters=EXCLUDED.reporters,flagged_at=now()
+WHERE safety.brigade_flags.reporters < EXCLUDED.reporters`, b.Target)
+	if err != nil {
+		return err
+	}
+	if flag.RowsAffected() > 0 {
+		if _, err = tx.Exec(r.Context(), `INSERT INTO safety.audit(action,resource_id) VALUES('BRIGADE_SUSPECTED',$1)`, b.Target); err != nil {
+			return err
+		}
+	}
 	// A report always hides the pair; HIGH holds all exposure pending human review.
 	if _, err = tx.Exec(r.Context(), `INSERT INTO safety.blocks(user_id,target_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, who(r).ID, b.Target); err != nil {
 		return err
@@ -114,6 +140,82 @@ func (s *Server) report(w http.ResponseWriter, r *http.Request) error {
 }
 func (s *Server) reports(w http.ResponseWriter, r *http.Request) error {
 	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('case_id',id,'category',category,'severity',severity,'status',status,'due_at',due_at) FROM safety.reports WHERE reporter=$1 ORDER BY created_at DESC LIMIT 100`, who(r).ID)
+	if err != nil {
+		return err
+	}
+	out, err := jsonRows(rows)
+	if err != nil {
+		return err
+	}
+	write(w, 200, map[string]any{"items": out})
+	return nil
+}
+
+var appealOwners = map[string]string{
+	"post":    `SELECT EXISTS(SELECT 1 FROM social.posts WHERE id=$1 AND author=$2)`,
+	"comment": `SELECT EXISTS(SELECT 1 FROM social.comments WHERE id=$1 AND author=$2)`,
+	"event":   `SELECT EXISTS(SELECT 1 FROM social.events WHERE id=$1 AND host=$2)`,
+}
+
+func appealable(action string) (string, bool) {
+	rest, ok := strings.CutPrefix(action, "MODERATE_")
+	if !ok {
+		return "", false
+	}
+	for kind := range appealOwners {
+		if d, ok := strings.CutPrefix(rest, kind+"_"); ok && d == "REMOVED" {
+			return kind, true
+		}
+	}
+	return "", false
+}
+
+func (s *Server) createAppeal(w http.ResponseWriter, r *http.Request) error {
+	var b struct {
+		Decision int64  `json:"decision_id"`
+		Reason   string `json:"reason"`
+	}
+	if err := decode(w, r, &b); err != nil {
+		return err
+	}
+	if b.Decision <= 0 || !textOK(b.Reason, 2000) || len([]rune(strings.TrimSpace(b.Reason))) < 10 {
+		return fail(400, "invalid_appeal")
+	}
+	var action string
+	var resource *string
+	err := s.DB.QueryRow(r.Context(), `SELECT action,resource_id FROM safety.audit WHERE id=$1`, b.Decision).Scan(&action, &resource)
+	if err == pgx.ErrNoRows {
+		return fail(404, "decision_unavailable")
+	}
+	if err != nil {
+		return err
+	}
+	kind, ok := appealable(action)
+	if !ok || resource == nil {
+		return fail(404, "decision_unavailable")
+	}
+	var owner bool
+	if err = s.DB.QueryRow(r.Context(), appealOwners[kind], *resource, who(r).ID).Scan(&owner); err != nil {
+		return err
+	}
+	if !owner {
+		return fail(404, "decision_unavailable")
+	}
+	var id string
+	err = s.DB.QueryRow(r.Context(), `INSERT INTO safety.appeals(user_id,decision_id,reason) VALUES($1,$2,$3) RETURNING appeal_id`, who(r).ID, b.Decision, strings.TrimSpace(b.Reason)).Scan(&id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fail(409, "appeal_exists")
+		}
+		return err
+	}
+	write(w, 201, map[string]any{"appeal_id": id, "status": "OPEN"})
+	return nil
+}
+
+func (s *Server) appeals(w http.ResponseWriter, r *http.Request) error {
+	rows, err := s.DB.Query(r.Context(), `SELECT json_build_object('appeal_id',appeal_id,'decision_id',decision_id,'reason',reason,'status',status,'reviewed_at',reviewed_at,'created_at',created_at) FROM safety.appeals WHERE user_id=$1 ORDER BY created_at DESC,appeal_id LIMIT 100`, who(r).ID)
 	if err != nil {
 		return err
 	}

@@ -71,6 +71,7 @@ func TestPrivilegeBoundaries(t *testing.T) {
 		denied(t, execErr(c, ctx, "TRUNCATE chat.messages"), "app TRUNCATE")
 		denied(t, execErr(c, ctx, "DROP TABLE social.posts"), "app DROP")
 		denied(t, execErr(c, ctx, "CREATE ROLE privilege_probe LOGIN"), "app CREATE ROLE")
+		denied(t, execErr(c, ctx, "SELECT name FROM safety.reviewers LIMIT 1"), "app reviewer read")
 	})
 
 	t.Run("moderator_scoped", func(t *testing.T) {
@@ -78,6 +79,15 @@ func TestPrivilegeBoundaries(t *testing.T) {
 		if _, err := c.Exec(ctx, "INSERT INTO safety.audit(action,resource_id) VALUES('PROBE',gen_random_uuid())"); err != nil {
 			t.Fatalf("moderator audit insert: %v", err)
 		}
+		var reviewers int
+		if err := c.QueryRow(ctx, "SELECT count(*) FROM safety.reviewers").Scan(&reviewers); err != nil {
+			t.Fatalf("moderator reviewer read: %v", err)
+		}
+		if _, err := c.Exec(ctx, "UPDATE safety.reviewers SET decisions_count=decisions_count WHERE false"); err != nil {
+			t.Fatalf("moderator rotation counter update: %v", err)
+		}
+		denied(t, execErr(c, ctx, "UPDATE safety.reviewers SET password_hash='x' WHERE false"), "moderator reviewer password write")
+		denied(t, execErr(c, ctx, "INSERT INTO safety.reviewers(name,role,password_hash) VALUES('probe','MODERATOR','x')"), "moderator reviewer create")
 		denied(t, execErr(c, ctx, "SELECT id FROM dating.dating_profiles LIMIT 1"), "moderator dating read")
 		denied(t, execErr(c, ctx, "SELECT user_id FROM private.user_locations LIMIT 1"), "moderator location read")
 		denied(t, execErr(c, ctx, "SELECT id FROM identity.accounts LIMIT 1"), "moderator identity read")

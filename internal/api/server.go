@@ -179,7 +179,7 @@ func (s *Server) routes() {
 			return fail(503, "dependency_unavailable")
 		}
 		var v int
-		if s.DB.QueryRow(ctx, "SELECT version FROM identity.schema_version").Scan(&v) != nil || v < 5 {
+		if s.DB.QueryRow(ctx, "SELECT version FROM identity.schema_version").Scan(&v) != nil || v < 6 {
 			return fail(503, "schema_mismatch")
 		}
 		write(w, 200, map[string]any{"status": "ready", "release": "development-baseline"})
@@ -224,6 +224,8 @@ func (s *Server) routes() {
 	s.protected("POST /v1/notifications/{id}/read", s.readNotification)
 	s.protected("POST /v1/safety/report", s.report)
 	s.protected("GET /v1/safety/reports", s.reports)
+	s.protected("POST /v1/safety/appeals", s.createAppeal)
+	s.protected("GET /v1/safety/appeals", s.appeals)
 	s.protected("POST /v1/safety/block", s.block)
 	s.protected("GET /v1/safety/blocks", s.blocks)
 	s.protected("DELETE /v1/safety/blocks/{id}", s.unblock)

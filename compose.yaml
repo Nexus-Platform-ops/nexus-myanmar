@@ -71,6 +71,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://nexus_moderator:${NEXUS_MODERATOR_DB_PASSWORD}@postgres:5432/nexus?sslmode=disable
+      ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:-}
     entrypoint: ["/app/moderate"]
     depends_on:
       migrate: {condition: service_completed_successfully}
